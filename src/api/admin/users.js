@@ -26,9 +26,8 @@ export async function getUsers(req, res) {
         callback_window,
         notification_phone,
         notification_email,
-        created_at,
-        updated_at
-      FROM leadsaveai.users
+        created_at
+      FROM leadsaveai.user_voice_config
       WHERE twilio_phone_number IS NOT NULL
       ORDER BY created_at DESC
     `;
@@ -61,9 +60,8 @@ export async function getUser(req, res) {
         callback_window,
         notification_phone,
         notification_email,
-        created_at,
-        updated_at
-      FROM leadsaveai.users
+        created_at
+      FROM leadsaveai.user_voice_config
       WHERE user_id = ${userId}
     `;
 
@@ -111,17 +109,15 @@ export async function updateUser(req, res) {
       return res.status(400).json({ error: 'business_qa must be an object' });
     }
 
-    // Update user
+    // Update business_config table (source of truth)
     const result = await sql`
-      UPDATE leadsaveai.users
+      UPDATE leadsaveai.business_config
       SET
         business_name = ${business_name},
         industry = ${industry},
-        service_types = ${JSON.stringify(service_types || [])},
-        business_qa = ${JSON.stringify(business_qa || {})},
-        callback_window = ${callback_window || 'soon'},
-        notification_phone = ${notification_phone || null},
-        notification_email = ${notification_email || null},
+        services_offered = ${JSON.stringify(service_types || [])},
+        common_faqs = ${JSON.stringify(business_qa || {})},
+        special_instructions = ${callback_window || 'soon'},
         updated_at = NOW()
       WHERE user_id = ${userId}
       RETURNING *
@@ -129,6 +125,25 @@ export async function updateUser(req, res) {
 
     if (result.length === 0) {
       return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Handle notification contacts (phone and email)
+    if (notification_phone) {
+      await sql`
+        INSERT INTO leadsaveai.notification_contacts (user_id, contact_type, contact_value, is_primary)
+        VALUES (${userId}, 'phone', ${notification_phone}, true)
+        ON CONFLICT (user_id, contact_type, contact_value)
+        DO UPDATE SET is_primary = true, updated_at = NOW()
+      `;
+    }
+
+    if (notification_email) {
+      await sql`
+        INSERT INTO leadsaveai.notification_contacts (user_id, contact_type, contact_value, is_primary)
+        VALUES (${userId}, 'email', ${notification_email}, true)
+        ON CONFLICT (user_id, contact_type, contact_value)
+        DO UPDATE SET is_primary = true, updated_at = NOW()
+      `;
     }
 
     usersLogger.info('User updated', { userId, business_name });
@@ -158,7 +173,7 @@ export async function previewPrompt(req, res) {
         service_types,
         business_qa,
         callback_window
-      FROM leadsaveai.users
+      FROM leadsaveai.user_voice_config
       WHERE user_id = ${userId}
     `;
 
