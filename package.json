@@ -1,0 +1,12 @@
+{
+  "name": "fly-voice-agent",
+  "version": "1.0.0",
+  "description": "Minimal voice agent deployment on Vercel",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": ["voice", "agent", "vercel"],
+  "author": "BrassHelm",
+  "license": "ISC"
+}
