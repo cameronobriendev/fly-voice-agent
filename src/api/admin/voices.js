@@ -67,7 +67,7 @@ export async function previewVoice(req, res) {
       return res.status(400).json({ error: 'voiceId is required' });
     }
 
-    const businessNameText = businessName || 'Leed Save A I';
+    const businessNameText = businessName || 'Leed Save A.I.';
     const previewText = `Thank you for calling ${businessNameText}, how can I help you today?`;
 
     voicesLogger.info('Generating voice preview', {
