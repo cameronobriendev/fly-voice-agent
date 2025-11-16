@@ -15,7 +15,8 @@ import { testConnection } from './db/neon.js';
 import { logger } from './utils/logger.js';
 import { handleTwilioRouter } from './api/twilio/router.js';
 import { requireAdminApiKey } from './api/admin/middleware.js';
-import { getPrompts, updateDemoTemplate, updateClientTemplate } from './api/admin/prompts.js';
+import { getPrompts, updateDemoTemplate, updateClientTemplate, updateDemoFallbackTemplate } from './api/admin/prompts.js';
+import { getGreetings, updateGreetings } from './api/admin/greetings.js';
 import { getUsers, getUser, updateUser, previewPrompt } from './api/admin/users.js';
 import { lookupVoice, previewVoice } from './api/admin/voices.js';
 
@@ -134,7 +135,12 @@ app.post('/api/twilio/router', handleTwilioRouter);
 // Prompts management
 app.get('/api/admin/prompts', requireAdminApiKey, getPrompts);
 app.put('/api/admin/prompts/demo', requireAdminApiKey, updateDemoTemplate);
+app.put('/api/admin/prompts/demo-fallback', requireAdminApiKey, updateDemoFallbackTemplate);
 app.put('/api/admin/prompts/client', requireAdminApiKey, updateClientTemplate);
+
+// Greetings management
+app.get('/api/admin/greetings', requireAdminApiKey, getGreetings);
+app.put('/api/admin/greetings', requireAdminApiKey, updateGreetings);
 
 // Users management
 app.get('/api/admin/users', requireAdminApiKey, getUsers);
