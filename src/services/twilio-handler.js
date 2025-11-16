@@ -9,8 +9,8 @@
  * 6. Send to webhook when call ends
  */
 
-import { getUserByPhone } from '../db/queries.js';
-import { buildPrompt, insertPhoneNumber } from './prompt-builder.js';
+import { getUserByPhone, getDemoRequestByPhone } from '../db/queries.js';
+import { buildPrompt, insertPhoneNumber, substituteVariables } from './prompt-builder.js';
 import { DeepgramService } from './deepgram.js';
 import { CartesiaService } from './cartesia.js';
 import { LLMRouter } from './llm-router.js';
@@ -67,6 +67,63 @@ export async function handleTwilioStream(ws) {
   let primaryProvider = null;
 
   /**
+   * Get initial greeting based on call type and demo request lookup
+   * @param {Object} userConfig - User configuration from database
+   * @param {string} callerNumber - Caller's phone number
+   * @returns {Promise<string>} Initial greeting text
+   */
+  async function getInitialGreeting(userConfig, callerNumber) {
+    const DEMO_PHONE_NUMBER = '+17753767929';
+    const isDemoCall = userConfig.twilio_phone_number === DEMO_PHONE_NUMBER;
+
+    if (isDemoCall) {
+      // Check if caller has demo request (for industry lookup)
+      const demoRequest = await getDemoRequestByPhone(callerNumber);
+
+      if (demoRequest && demoRequest.industry_slug) {
+        // Caller has industry - use demo greeting
+        if (userConfig.demo_greeting) {
+          twilioLogger.info('Using custom demo greeting (with industry)', {
+            callSid,
+            callerNumber,
+            industry: demoRequest.industry_slug
+          });
+          return substituteVariables(userConfig.demo_greeting, userConfig);
+        }
+      } else {
+        // Caller has no industry - use demo fallback greeting
+        if (userConfig.demo_fallback_greeting) {
+          twilioLogger.info('Using custom demo fallback greeting (no industry)', {
+            callSid,
+            callerNumber
+          });
+          return substituteVariables(userConfig.demo_fallback_greeting, userConfig);
+        }
+      }
+
+      // Ultimate fallback for demo calls
+      twilioLogger.info('Using default demo greeting', { callSid, callerNumber });
+      return substituteVariables(
+        `Thanks for calling our {{BUSINESS_NAME}} demo! How can I help you today?`,
+        userConfig
+      );
+    } else {
+      // Client call - use client greeting
+      if (userConfig.client_greeting) {
+        twilioLogger.info('Using custom client greeting', { callSid });
+        return substituteVariables(userConfig.client_greeting, userConfig);
+      }
+
+      // Fallback for client calls
+      twilioLogger.info('Using default client greeting', { callSid });
+      return substituteVariables(
+        `Hi! Thanks for calling {{BUSINESS_NAME}}. How can I help you today?`,
+        userConfig
+      );
+    }
+  }
+
+  /**
    * Initialize services and user config
    */
   async function initialize(twilioNumber, callerNumber) {
@@ -107,10 +164,9 @@ export async function handleTwilioStream(ws) {
 
       twilioLogger.info('Services initialized', { callSid });
 
-      // Send initial greeting
-      await sendAIResponse(
-        `Hi! Thanks for calling ${userConfig.business_name}. How can I help you today?`
-      );
+      // Get and send initial greeting (customizable or fallback)
+      const greeting = await getInitialGreeting(userConfig, callerNumber);
+      await sendAIResponse(greeting);
     } catch (error) {
       twilioLogger.error('Failed to initialize call', error);
       ws.close();

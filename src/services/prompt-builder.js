@@ -106,6 +106,27 @@ function buildQASection(businessQA) {
 }
 
 /**
+ * Substitute template variables with actual values
+ * Used for custom greetings and other user-facing text
+ * @param {string} text - Text with {{VARIABLES}}
+ * @param {Object} userConfig - User configuration from database
+ * @returns {string} Text with variables replaced
+ */
+export function substituteVariables(text, userConfig) {
+  if (!text) return text;
+
+  let result = text;
+
+  // Replace {{BUSINESS_NAME}}
+  result = result.replace(/{{BUSINESS_NAME}}/g, userConfig.business_name || 'our company');
+
+  // Replace {{INDUSTRY}}
+  result = result.replace(/{{INDUSTRY}}/g, userConfig.industry || 'service');
+
+  return result;
+}
+
+/**
  * Replace phone number placeholder in prompt
  * @param {string} prompt - Prompt with {{PHONE}} placeholder
  * @param {string} phoneNumber - Phone number to insert
@@ -118,4 +139,5 @@ export function insertPhoneNumber(prompt, phoneNumber) {
 export default {
   buildPrompt,
   insertPhoneNumber,
+  substituteVariables,
 };
