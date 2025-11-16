@@ -76,7 +76,7 @@ export async function previewVoice(req, res) {
     });
 
     const cartesia = new CartesiaService();
-    const audioResponse = await cartesia.generateAudio(previewText, voiceId);
+    const audioResponse = await cartesia.generatePreviewAudio(previewText, voiceId);
 
     // Convert Cartesia response to Buffer
     let audioBuffer;
@@ -107,8 +107,8 @@ export async function previewVoice(req, res) {
       audio: base64Audio,
       text: previewText,
       voice_id: voiceId,
-      format: 'pcm_mulaw',
-      sample_rate: 8000,
+      format: 'pcm_s16le',  // 16-bit signed PCM
+      sample_rate: 44100,   // 44.1kHz (CD quality)
     });
   } catch (error) {
     voicesLogger.error('Error generating voice preview', error);

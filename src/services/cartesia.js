@@ -65,6 +65,48 @@ export class CartesiaService {
   }
 
   /**
+   * Generate high-quality audio for web previews
+   * @param {string} text - Text to convert to speech
+   * @param {string} voiceId - Optional voice ID (defaults to Barbershop Man)
+   * @returns {Promise<Buffer>} Audio buffer (pcm_s16le, 44.1kHz)
+   */
+  async generatePreviewAudio(text, voiceId = null) {
+    try {
+      cartesiaLogger.debug('Generating high-quality preview audio', {
+        textLength: text.length,
+        voiceId: voiceId || this.defaultVoiceId,
+      });
+
+      const response = await this.client.tts.bytes({
+        model_id: 'sonic-english',
+        transcript: text,
+        voice: {
+          mode: 'id',
+          id: voiceId || this.defaultVoiceId,
+        },
+        output_format: {
+          container: 'raw',
+          encoding: 'pcm_s16le',  // 16-bit signed PCM (uncompressed)
+          sample_rate: 44100,      // CD quality (44.1kHz)
+        },
+      });
+
+      cartesiaLogger.debug('High-quality preview audio generated successfully', {
+        textLength: text.length,
+        sampleRate: 44100,
+        encoding: 'pcm_s16le',
+      });
+
+      return response;
+    } catch (error) {
+      cartesiaLogger.error('Error generating preview audio', error, {
+        text: text.substring(0, 50) + '...',
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Start a WebSocket stream for streaming TTS
    * @param {Function} onAudio - Callback for audio chunks
    * @param {Function} onError - Callback for errors
