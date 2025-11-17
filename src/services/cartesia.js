@@ -5,6 +5,7 @@
  */
 
 import Cartesia from '@cartesia/cartesia-js';
+import WebSocket from 'ws';
 import { logger } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
@@ -77,6 +78,7 @@ export class CartesiaService {
 
     this.client = new Cartesia({
       apiKey: process.env.CARTESIA_API_KEY,
+      WebSocket: WebSocket, // Provide WebSocket implementation for Node.js
     });
 
     // Default voice ID - you can customize this per user if needed
