@@ -43,11 +43,32 @@ export class DeepgramService {
 
       connection.on(LiveTranscriptionEvents.Transcript, (data) => {
         const transcript = data.channel?.alternatives?.[0]?.transcript;
+        const confidence = data.channel?.alternatives?.[0]?.confidence;
+        const isFinal = data.is_final;
+        const speechFinal = data.speech_final;
+
+        // LOG DEEPGRAM TRANSCRIPT EVENT (VERBOSE)
+        deepgramLogger.debug('🎤 DEEPGRAM TRANSCRIPT EVENT', {
+          hasTranscript: !!transcript,
+          transcriptLength: transcript?.length || 0,
+          text: transcript || '(empty)',
+          confidence: confidence?.toFixed(3) || 'N/A',
+          isFinal,
+          speechFinal,
+          duration: data.duration,
+          start: data.start,
+          channelIndex: data.channel_index,
+          alternatives: data.channel?.alternatives?.length || 0,
+        });
 
         if (transcript && transcript.length > 0) {
-          deepgramLogger.debug('Transcript received', {
+          deepgramLogger.info('✅ STT FINAL TRANSCRIPT', {
             text: transcript,
-            confidence: data.channel?.alternatives?.[0]?.confidence,
+            confidence: confidence?.toFixed(3) || 'N/A',
+            confidencePercent: confidence ? `${(confidence * 100).toFixed(1)}%` : 'N/A',
+            duration: `${data.duration}s`,
+            isFinal,
+            speechFinal,
           });
           onTranscript(transcript);
         }

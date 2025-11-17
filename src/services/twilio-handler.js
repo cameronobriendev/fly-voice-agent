@@ -58,7 +58,11 @@ export async function handleTwilioStream(ws) {
   let deepgram = null;
   let deepgramConnection = null;
   let cartesia = null;
+  let cartesiaConnection = null;
   let llmRouter = null;
+
+  // TTS streaming state (for performance tracking)
+  let currentTtsRequest = null; // { text, startTime, firstChunkTime, chunkCount, totalBytes, resolve, reject }
 
   // Metrics
   let llmCalls = 0;
@@ -156,13 +160,27 @@ export async function handleTwilioStream(ws) {
       cartesia = new CartesiaService();
       llmRouter = new LLMRouter();
 
-      // Start Deepgram stream
+      // Start Deepgram stream (STT)
       deepgramConnection = await deepgram.startStream(
         onTranscript,
         onDeepgramError
       );
 
-      twilioLogger.info('Services initialized', { callSid });
+      // Start Cartesia WebSocket stream (TTS)
+      const voiceId = userConfig?.ai_voice_id || null;
+      cartesiaConnection = await cartesia.startStream(
+        voiceId,
+        onCartesiaAudio,
+        onCartesiaDone,
+        onCartesiaError
+      );
+
+      twilioLogger.info('Services initialized', {
+        callSid,
+        sttProvider: 'Deepgram',
+        ttsProvider: 'Cartesia WebSocket',
+        ttsVoiceId: voiceId || 'default',
+      });
 
       // Get and send initial greeting (customizable or fallback)
       const greeting = await getInitialGreeting(userConfig, callerNumber);
@@ -174,20 +192,38 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
+   * Strip function call syntax from LLM response
+   * Removes <function=...>...</function> tags that should not be spoken
+   */
+  function stripFunctionCalls(text) {
+    // Remove function call syntax: <function=name>{...}</function>
+    return text.replace(/<function=[^>]+>.*?<\/function>/g, '').trim();
+  }
+
+  /**
    * Handle transcript from Deepgram
    */
   async function onTranscript(transcriptText) {
     const transcriptReceivedAt = Date.now();
 
     try {
-      twilioLogger.info('User said', { text: transcriptText });
+      // LOG TRANSCRIPT ENTRY (VERBOSE)
+      twilioLogger.info('📞 USER TRANSCRIPT', {
+        callSid,
+        speaker: 'user',
+        text: transcriptText,
+        textLength: transcriptText.length,
+        timestamp: new Date().toISOString(),
+        turnNumber: Math.floor(transcript.length / 2) + 1,
+      });
 
       // Add to transcript
-      transcript.push({
+      const transcriptEntry = {
         speaker: 'user',
         text: transcriptText,
         timestamp: new Date().toISOString(),
-      });
+      };
+      transcript.push(transcriptEntry);
 
       // Add to conversation history
       messages.push({
@@ -205,30 +241,82 @@ export async function handleTwilioStream(ws) {
       totalCost += response.cost;
       primaryProvider = response.provider;
 
+      // LOG RAW LLM RESPONSE (BEFORE FUNCTION STRIPPING)
+      twilioLogger.debug('🤖 LLM RAW RESPONSE', {
+        callSid,
+        provider: response.provider,
+        hasContent: !!response.content,
+        hasFunctionCall: !!response.functionCall,
+        contentLength: response.content?.length || 0,
+        rawContent: response.content || '(no content)',
+        functionCallName: response.functionCall?.name || null,
+        tokens: response.tokens,
+        latency: `${response.latency}ms`,
+        cost: `$${response.cost.toFixed(6)}`,
+      });
+
       // Handle function call
       if (response.functionCall) {
+        twilioLogger.info('🔧 FUNCTION CALL DETECTED', {
+          callSid,
+          functionName: response.functionCall.name,
+          arguments: response.functionCall.arguments,
+        });
         await handleFunctionCall(response.functionCall);
       }
 
       // Handle text response with timing
       if (response.content) {
-        messages.push({
-          role: 'assistant',
-          content: response.content,
-        });
+        // Strip function call syntax before storing and speaking
+        const cleanContent = stripFunctionCalls(response.content);
 
-        const ttsStartTime = Date.now();
-        await sendAIResponse(response.content);
-        const ttsEndTime = Date.now();
+        // LOG FUNCTION CALL STRIPPING RESULTS
+        if (cleanContent.length !== response.content.length) {
+          const stripped = response.content.length - cleanContent.length;
+          twilioLogger.debug('✂️ STRIPPED FUNCTION CALLS FROM RESPONSE', {
+            callSid,
+            originalLength: response.content.length,
+            cleanLength: cleanContent.length,
+            strippedChars: stripped,
+            hadFunctionSyntax: true,
+          });
+        }
 
-        // Log detailed latency breakdown
-        twilioLogger.info('Response timing breakdown', {
-          callSid,
-          llmLatency: `${llmEndTime - llmStartTime}ms`,
-          ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
-          totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
-          responseLength: response.content.length,
-        });
+        if (cleanContent.length > 0) {
+          messages.push({
+            role: 'assistant',
+            content: cleanContent,
+          });
+
+          // LOG AI RESPONSE BEFORE TTS
+          twilioLogger.info('🤖 AI TRANSCRIPT', {
+            callSid,
+            speaker: 'ai',
+            text: cleanContent,
+            textLength: cleanContent.length,
+            timestamp: new Date().toISOString(),
+            turnNumber: Math.floor(transcript.length / 2) + 1,
+          });
+
+          const ttsStartTime = Date.now();
+          await sendAIResponse(cleanContent);
+          const ttsEndTime = Date.now();
+
+          // Log detailed latency breakdown
+          twilioLogger.info('⏱️ RESPONSE TIMING BREAKDOWN', {
+            callSid,
+            llmLatency: `${llmEndTime - llmStartTime}ms`,
+            ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
+            totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
+            responseLength: cleanContent.length,
+            hadFunctionCalls: cleanContent.length !== response.content.length,
+            provider: response.provider,
+          });
+        } else {
+          twilioLogger.debug('Response contained only function calls, no text to speak', {
+            callSid,
+          });
+        }
       }
     } catch (error) {
       twilioLogger.error('Error processing transcript', error);
@@ -265,37 +353,162 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
-   * Send AI response via TTS
+   * Handle audio chunk from Cartesia WebSocket stream
+   */
+  function onCartesiaAudio(audioChunk) {
+    if (!currentTtsRequest) {
+      twilioLogger.warn('⚠️ Received audio chunk with no active TTS request', {
+        callSid,
+        chunkSize: audioChunk.length,
+      });
+      return;
+    }
+
+    const now = Date.now();
+
+    // Track first chunk (TTFB - Time To First Byte)
+    if (currentTtsRequest.chunkCount === 0) {
+      currentTtsRequest.firstChunkTime = now;
+      const ttfb = now - currentTtsRequest.startTime;
+
+      twilioLogger.info('🎵 TTS FIRST CHUNK (TTFB)', {
+        callSid,
+        ttfb: `${ttfb}ms`,
+        textLength: currentTtsRequest.text.length,
+        chunkSize: audioChunk.length,
+      });
+    }
+
+    currentTtsRequest.chunkCount++;
+    currentTtsRequest.totalBytes += audioChunk.length;
+
+    // Send chunk to Twilio immediately (streaming)
+    const base64Audio = audioChunk.toString('base64');
+    ws.send(
+      JSON.stringify({
+        event: 'media',
+        streamSid: streamSid,
+        media: {
+          payload: base64Audio,
+        },
+      })
+    );
+
+    // Log chunk delivery (debug level to avoid spam)
+    twilioLogger.debug('📡 AUDIO CHUNK SENT TO TWILIO', {
+      callSid,
+      chunkNumber: currentTtsRequest.chunkCount,
+      chunkSize: audioChunk.length,
+      totalBytes: currentTtsRequest.totalBytes,
+      elapsedMs: now - currentTtsRequest.startTime,
+    });
+  }
+
+  /**
+   * Handle TTS stream completion from Cartesia
+   */
+  function onCartesiaDone() {
+    if (!currentTtsRequest) {
+      twilioLogger.warn('⚠️ Received done event with no active TTS request', {
+        callSid,
+      });
+      return;
+    }
+
+    const endTime = Date.now();
+    const totalLatency = endTime - currentTtsRequest.startTime;
+    const ttfb = currentTtsRequest.firstChunkTime
+      ? currentTtsRequest.firstChunkTime - currentTtsRequest.startTime
+      : null;
+
+    twilioLogger.info('✅ TTS STREAMING COMPLETE', {
+      callSid,
+      textLength: currentTtsRequest.text.length,
+      chunks: currentTtsRequest.chunkCount,
+      totalBytes: currentTtsRequest.totalBytes,
+      audioSeconds: (currentTtsRequest.totalBytes / 8000).toFixed(1),
+      ttfb: ttfb ? `${ttfb}ms` : 'N/A',
+      totalLatency: `${totalLatency}ms`,
+      msPerChar: (totalLatency / currentTtsRequest.text.length).toFixed(1),
+    });
+
+    // Resolve the promise to unblock caller
+    if (currentTtsRequest.resolve) {
+      currentTtsRequest.resolve();
+    }
+
+    // Clear current request
+    currentTtsRequest = null;
+  }
+
+  /**
+   * Handle Cartesia WebSocket errors
+   */
+  function onCartesiaError(error) {
+    twilioLogger.error('❌ Cartesia WebSocket error', error);
+
+    // Reject current request if any
+    if (currentTtsRequest && currentTtsRequest.reject) {
+      currentTtsRequest.reject(error);
+      currentTtsRequest = null;
+    }
+  }
+
+  /**
+   * Send AI response via TTS (WebSocket streaming)
    */
   async function sendAIResponse(text) {
-    try {
-      twilioLogger.info('AI says', { text });
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now();
 
-      // Add to transcript
-      transcript.push({
-        speaker: 'ai',
-        text,
-        timestamp: new Date().toISOString(),
-      });
+      try {
+        // LOG TTS REQUEST
+        twilioLogger.debug('🔊 TTS STREAMING REQUEST', {
+          callSid,
+          text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+          textLength: text.length,
+          voiceId: userConfig?.ai_voice_id || 'default',
+          method: 'websocket-streaming',
+        });
 
-      // Generate audio with user's selected voice
-      const voiceId = userConfig?.ai_voice_id || null; // Falls back to CartesiaService default if null
-      const audioBuffer = await cartesia.generateAudio(text, voiceId);
+        // Add to transcript
+        transcript.push({
+          speaker: 'ai',
+          text,
+          timestamp: new Date().toISOString(),
+        });
 
-      // Send to Twilio
-      const base64Audio = audioBuffer.toString('base64');
-      ws.send(
-        JSON.stringify({
-          event: 'media',
-          streamSid: streamSid,
-          media: {
-            payload: base64Audio,
-          },
-        })
-      );
-    } catch (error) {
-      twilioLogger.error('Error sending AI response', error);
-    }
+        // Create TTS request tracking object
+        currentTtsRequest = {
+          text,
+          startTime,
+          firstChunkTime: null,
+          chunkCount: 0,
+          totalBytes: 0,
+          resolve,
+          reject,
+        };
+
+        // Send text to Cartesia WebSocket stream
+        // Audio chunks will arrive via onCartesiaAudio callback
+        // Completion will trigger onCartesiaDone callback which resolves the promise
+        cartesia.sendText(cartesiaConnection, text).catch((error) => {
+          twilioLogger.error('Error sending text to Cartesia stream', error);
+          currentTtsRequest = null;
+          reject(error);
+        });
+
+        twilioLogger.debug('📤 TEXT SENT TO CARTESIA STREAM', {
+          callSid,
+          textLength: text.length,
+          sendLatency: `${Date.now() - startTime}ms`,
+        });
+      } catch (error) {
+        twilioLogger.error('Error in sendAIResponse', error);
+        currentTtsRequest = null;
+        reject(error);
+      }
+    });
   }
 
   /**
@@ -329,6 +542,35 @@ export async function handleTwilioStream(ws) {
         totalCost,
       };
 
+      // LOG FULL CALL TRANSCRIPT (VERBOSE)
+      twilioLogger.info('📋 FULL CALL TRANSCRIPT', {
+        callSid,
+        fromNumber,
+        toNumber,
+        duration: `${duration}s`,
+        turns: transcript.length,
+        transcript: transcript.map((entry, idx) => ({
+          turn: idx + 1,
+          speaker: entry.speaker,
+          text: entry.text,
+          timestamp: entry.timestamp,
+        })),
+      });
+
+      // LOG CALL SUMMARY STATS
+      twilioLogger.info('📊 CALL SUMMARY STATS', {
+        callSid,
+        duration: `${duration}s`,
+        totalTurns: transcript.length,
+        userTurns: transcript.filter((t) => t.speaker === 'user').length,
+        aiTurns: transcript.filter((t) => t.speaker === 'ai').length,
+        llmCalls,
+        avgLlmLatency: llmCalls > 0 ? Math.round(totalLatency / llmCalls) : 0,
+        totalCost: `$${totalCost.toFixed(4)}`,
+        provider: primaryProvider,
+        collectedData: JSON.stringify(collectedData, null, 2),
+      });
+
       twilioLogger.info('Sending call data to webhook', { callSid });
 
       await sendToWebhook(userId, callData);
@@ -336,7 +578,7 @@ export async function handleTwilioStream(ws) {
       // Track call end
       onCallEnd();
 
-      twilioLogger.info('Call completed', {
+      twilioLogger.info('✅ Call completed successfully', {
         callSid,
         duration,
         llmCalls,
@@ -385,6 +627,11 @@ export async function handleTwilioStream(ws) {
           deepgram.closeStream(deepgramConnection);
         }
 
+        // Close Cartesia WebSocket
+        if (cartesiaConnection) {
+          await cartesia.closeStream(cartesiaConnection);
+        }
+
         // Finalize call
         await finalize();
       }
@@ -403,6 +650,10 @@ export async function handleTwilioStream(ws) {
     // Clean up
     if (deepgramConnection) {
       deepgram.closeStream(deepgramConnection);
+    }
+
+    if (cartesiaConnection) {
+      cartesia.closeStream(cartesiaConnection);
     }
   });
 }

@@ -95,13 +95,7 @@ export class CartesiaService {
     const startTime = Date.now();
 
     try {
-      cartesiaLogger.debug('Generating audio', {
-        textLength: text.length,
-        voiceId: voiceId || this.defaultVoiceId,
-      });
-
-      const apiStartTime = Date.now();
-      const response = await this.client.tts.bytes({
+      const requestParams = {
         model_id: 'sonic-3', // LATEST model (Oct 2025) - high naturalness, industry-leading latency
         transcript: text,
         voice: {
@@ -113,38 +107,80 @@ export class CartesiaService {
           encoding: 'pcm_mulaw',
           sample_rate: 8000,
         },
+      };
+
+      cartesiaLogger.debug('Generating audio - REQUEST DETAILS', {
+        textLength: text.length,
+        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        requestParams: JSON.stringify(requestParams, null, 2),
       });
+
+      const apiStartTime = Date.now();
+      const response = await this.client.tts.bytes(requestParams);
       const apiEndTime = Date.now();
+
+      // LOG CARTESIA RESPONSE STRUCTURE (verbose debugging)
+      cartesiaLogger.debug('Cartesia API response structure', {
+        responseType: typeof response,
+        isBuffer: Buffer.isBuffer(response),
+        hasAudioProp: response?.audio !== undefined,
+        hasDataProp: response?.data !== undefined,
+        responseKeys: response && typeof response === 'object' ? Object.keys(response) : [],
+        responseConstructor: response?.constructor?.name,
+      });
 
       // Extract audio buffer from response (handle multiple API response formats)
       const extractStartTime = Date.now();
       let audioBuffer;
+      let responseFormat = 'unknown';
+
       if (Buffer.isBuffer(response)) {
         // Format 1: Response is already a Buffer (older SDK version)
         audioBuffer = response;
+        responseFormat = 'direct-buffer';
       } else if (response && Buffer.isBuffer(response.audio)) {
         // Format 2: Response has .audio property
         audioBuffer = response.audio;
+        responseFormat = 'response.audio';
       } else if (response && Buffer.isBuffer(response.data)) {
         // Format 3: Response has .data property
         audioBuffer = response.data;
+        responseFormat = 'response.data';
       } else if (response) {
         // Format 4: Try to convert to Buffer (ArrayBuffer, Uint8Array, etc.)
         audioBuffer = Buffer.from(response);
+        responseFormat = 'buffer-conversion';
       } else {
         throw new Error('Cartesia response is empty or invalid format');
       }
       const extractEndTime = Date.now();
 
+      cartesiaLogger.debug('Audio buffer extracted', {
+        responseFormat,
+        bufferLength: audioBuffer.length,
+        extractionTime: `${extractEndTime - extractStartTime}ms`,
+      });
+
       const totalTime = Date.now() - startTime;
+      const apiLatency = apiEndTime - apiStartTime;
+      const msPerChar = totalTime / text.length;
+
+      // sonic-3 expected TTFB: 40-90ms, total should be <500ms for short text
+      const expectedMaxLatency = 500;
+      const isSlow = apiLatency > expectedMaxLatency;
 
       cartesiaLogger.info('Audio generated - detailed timing', {
         textLength: text.length,
         bufferSize: audioBuffer.length,
-        apiLatency: `${apiEndTime - apiStartTime}ms`,
+        apiLatency: `${apiLatency}ms`,
         extractionLatency: `${extractEndTime - extractStartTime}ms`,
         totalLatency: `${totalTime}ms`,
-        msPerCharacter: (totalTime / text.length).toFixed(1),
+        msPerCharacter: msPerChar.toFixed(1),
+        expectedMaxLatency: `${expectedMaxLatency}ms`,
+        isSlow: isSlow,
+        slowBy: isSlow ? `${apiLatency - expectedMaxLatency}ms` : '0ms',
+        audioFormat: 'mulaw 8kHz',
+        audioSeconds: (audioBuffer.length / 8000).toFixed(1),
       });
 
       // Return pure TTS audio (background ambience disabled due to quality issues)
@@ -216,17 +252,19 @@ export class CartesiaService {
 
   /**
    * Start a WebSocket stream for streaming TTS
+   * @param {string} voiceId - Voice ID to use (null = default)
    * @param {Function} onAudio - Callback for audio chunks
+   * @param {Function} onDone - Callback when streaming completes
    * @param {Function} onError - Callback for errors
    * @returns {Promise<Object>} Cartesia WebSocket connection
    */
-  async startStream(onAudio, onError) {
+  async startStream(voiceId, onAudio, onDone, onError) {
     try {
       const websocket = this.client.tts.websocket({
         model_id: 'sonic-3', // LATEST model (Oct 2025) - high naturalness, industry-leading latency
         voice: {
           mode: 'id',
-          id: this.defaultVoiceId,
+          id: voiceId || this.defaultVoiceId,
         },
         output_format: {
           container: 'raw',
@@ -242,6 +280,7 @@ export class CartesiaService {
           onAudio(message.data);
         } else if (message.type === 'done') {
           cartesiaLogger.debug('TTS stream completed');
+          if (onDone) onDone();
         }
       });
 
@@ -250,7 +289,12 @@ export class CartesiaService {
         onError(error);
       });
 
-      cartesiaLogger.info('Cartesia WebSocket stream started');
+      cartesiaLogger.info('Cartesia WebSocket stream started', {
+        voiceId: voiceId || this.defaultVoiceId,
+        model: 'sonic-3',
+        encoding: 'pcm_mulaw',
+        sampleRate: 8000,
+      });
 
       return websocket;
     } catch (error) {
