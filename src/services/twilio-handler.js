@@ -58,11 +58,7 @@ export async function handleTwilioStream(ws) {
   let deepgram = null;
   let deepgramConnection = null;
   let cartesia = null;
-  let cartesiaConnection = null;
   let llmRouter = null;
-
-  // TTS streaming state (for performance tracking)
-  let currentTtsRequest = null; // { text, startTime, firstChunkTime, chunkCount, totalBytes, resolve, reject }
 
   // Metrics
   let llmCalls = 0;
@@ -166,14 +162,9 @@ export async function handleTwilioStream(ws) {
         onDeepgramError
       );
 
-      // Start Cartesia WebSocket stream (TTS)
+      // Connect to Cartesia WebSocket (TTS)
       const voiceId = userConfig?.ai_voice_id || null;
-      cartesiaConnection = await cartesia.startStream(
-        voiceId,
-        onCartesiaAudio,
-        onCartesiaDone,
-        onCartesiaError
-      );
+      cartesiaConnection = await cartesia.connect(voiceId);
 
       twilioLogger.info('Services initialized', {
         callSid,
@@ -353,162 +344,44 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
-   * Handle audio chunk from Cartesia WebSocket stream
-   */
-  function onCartesiaAudio(audioChunk) {
-    if (!currentTtsRequest) {
-      twilioLogger.warn('⚠️ Received audio chunk with no active TTS request', {
-        callSid,
-        chunkSize: audioChunk.length,
-      });
-      return;
-    }
-
-    const now = Date.now();
-
-    // Track first chunk (TTFB - Time To First Byte)
-    if (currentTtsRequest.chunkCount === 0) {
-      currentTtsRequest.firstChunkTime = now;
-      const ttfb = now - currentTtsRequest.startTime;
-
-      twilioLogger.info('🎵 TTS FIRST CHUNK (TTFB)', {
-        callSid,
-        ttfb: `${ttfb}ms`,
-        textLength: currentTtsRequest.text.length,
-        chunkSize: audioChunk.length,
-      });
-    }
-
-    currentTtsRequest.chunkCount++;
-    currentTtsRequest.totalBytes += audioChunk.length;
-
-    // Send chunk to Twilio immediately (streaming)
-    const base64Audio = audioChunk.toString('base64');
-    ws.send(
-      JSON.stringify({
-        event: 'media',
-        streamSid: streamSid,
-        media: {
-          payload: base64Audio,
-        },
-      })
-    );
-
-    // Log chunk delivery (debug level to avoid spam)
-    twilioLogger.debug('📡 AUDIO CHUNK SENT TO TWILIO', {
-      callSid,
-      chunkNumber: currentTtsRequest.chunkCount,
-      chunkSize: audioChunk.length,
-      totalBytes: currentTtsRequest.totalBytes,
-      elapsedMs: now - currentTtsRequest.startTime,
-    });
-  }
-
-  /**
-   * Handle TTS stream completion from Cartesia
-   */
-  function onCartesiaDone() {
-    if (!currentTtsRequest) {
-      twilioLogger.warn('⚠️ Received done event with no active TTS request', {
-        callSid,
-      });
-      return;
-    }
-
-    const endTime = Date.now();
-    const totalLatency = endTime - currentTtsRequest.startTime;
-    const ttfb = currentTtsRequest.firstChunkTime
-      ? currentTtsRequest.firstChunkTime - currentTtsRequest.startTime
-      : null;
-
-    twilioLogger.info('✅ TTS STREAMING COMPLETE', {
-      callSid,
-      textLength: currentTtsRequest.text.length,
-      chunks: currentTtsRequest.chunkCount,
-      totalBytes: currentTtsRequest.totalBytes,
-      audioSeconds: (currentTtsRequest.totalBytes / 8000).toFixed(1),
-      ttfb: ttfb ? `${ttfb}ms` : 'N/A',
-      totalLatency: `${totalLatency}ms`,
-      msPerChar: (totalLatency / currentTtsRequest.text.length).toFixed(1),
-    });
-
-    // Resolve the promise to unblock caller
-    if (currentTtsRequest.resolve) {
-      currentTtsRequest.resolve();
-    }
-
-    // Clear current request
-    currentTtsRequest = null;
-  }
-
-  /**
-   * Handle Cartesia WebSocket errors
-   */
-  function onCartesiaError(error) {
-    twilioLogger.error('❌ Cartesia WebSocket error', error);
-
-    // Reject current request if any
-    if (currentTtsRequest && currentTtsRequest.reject) {
-      currentTtsRequest.reject(error);
-      currentTtsRequest = null;
-    }
-  }
-
-  /**
    * Send AI response via TTS (WebSocket streaming)
    */
   async function sendAIResponse(text) {
-    return new Promise((resolve, reject) => {
-      const startTime = Date.now();
+    try {
+      // LOG TTS REQUEST
+      twilioLogger.debug('🔊 TTS STREAMING REQUEST', {
+        callSid,
+        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        textLength: text.length,
+        voiceId: userConfig?.ai_voice_id || 'default',
+        method: 'websocket-streaming',
+      });
 
-      try {
-        // LOG TTS REQUEST
-        twilioLogger.debug('🔊 TTS STREAMING REQUEST', {
-          callSid,
-          text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
-          textLength: text.length,
-          voiceId: userConfig?.ai_voice_id || 'default',
-          method: 'websocket-streaming',
-        });
+      // Add to transcript
+      transcript.push({
+        speaker: 'ai',
+        text,
+        timestamp: new Date().toISOString(),
+      });
 
-        // Add to transcript
-        transcript.push({
-          speaker: 'ai',
-          text,
-          timestamp: new Date().toISOString(),
-        });
-
-        // Create TTS request tracking object
-        currentTtsRequest = {
-          text,
-          startTime,
-          firstChunkTime: null,
-          chunkCount: 0,
-          totalBytes: 0,
-          resolve,
-          reject,
-        };
-
-        // Send text to Cartesia WebSocket stream
-        // Audio chunks will arrive via onCartesiaAudio callback
-        // Completion will trigger onCartesiaDone callback which resolves the promise
-        cartesia.sendText(cartesiaConnection, text).catch((error) => {
-          twilioLogger.error('Error sending text to Cartesia stream', error);
-          currentTtsRequest = null;
-          reject(error);
-        });
-
-        twilioLogger.debug('📤 TEXT SENT TO CARTESIA STREAM', {
-          callSid,
-          textLength: text.length,
-          sendLatency: `${Date.now() - startTime}ms`,
-        });
-      } catch (error) {
-        twilioLogger.error('Error in sendAIResponse', error);
-        currentTtsRequest = null;
-        reject(error);
-      }
-    });
+      // Speak text and send audio chunks to Twilio
+      await cartesia.speakText(text, (audioChunk) => {
+        // Send audio chunk to Twilio (streaming)
+        const base64Audio = audioChunk.toString('base64');
+        ws.send(
+          JSON.stringify({
+            event: 'media',
+            streamSid: streamSid,
+            media: {
+              payload: base64Audio,
+            },
+          })
+        );
+      });
+    } catch (error) {
+      twilioLogger.error('Error in sendAIResponse', error);
+      throw error;
+    }
   }
 
   /**
@@ -628,8 +501,8 @@ export async function handleTwilioStream(ws) {
         }
 
         // Close Cartesia WebSocket
-        if (cartesiaConnection) {
-          await cartesia.closeStream(cartesiaConnection);
+        if (cartesia) {
+          await cartesia.disconnect();
         }
 
         // Finalize call
@@ -652,8 +525,8 @@ export async function handleTwilioStream(ws) {
       deepgram.closeStream(deepgramConnection);
     }
 
-    if (cartesiaConnection) {
-      cartesia.closeStream(cartesiaConnection);
+    if (cartesia) {
+      cartesia.disconnect();
     }
   });
 }

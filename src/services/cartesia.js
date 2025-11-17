@@ -253,16 +253,13 @@ export class CartesiaService {
   }
 
   /**
-   * Start a WebSocket stream for streaming TTS
+   * Connect to Cartesia WebSocket (call once per session)
    * @param {string} voiceId - Voice ID to use (null = default)
-   * @param {Function} onAudio - Callback for audio chunks
-   * @param {Function} onDone - Callback when streaming completes
-   * @param {Function} onError - Callback for errors
-   * @returns {Promise<Object>} Cartesia WebSocket connection
+   * @returns {Promise<Object>} Connected Cartesia WebSocket
    */
-  async startStream(voiceId, onAudio, onDone, onError) {
+  async connect(voiceId) {
     try {
-      const websocket = this.client.tts.websocket({
+      this.websocket = this.client.tts.websocket({
         model_id: 'sonic-3', // LATEST model (Oct 2025) - high naturalness, industry-leading latency
         voice: {
           mode: 'id',
@@ -276,62 +273,112 @@ export class CartesiaService {
       });
 
       // Provide WebSocket implementation to connect() for partysocket (Node.js requirement)
-      await websocket.connect({ WebSocket: WebSocket });
+      await this.websocket.connect({ WebSocket: WebSocket });
 
-      websocket.on('message', (message) => {
-        if (message.type === 'chunk') {
-          onAudio(message.data);
-        } else if (message.type === 'done') {
-          cartesiaLogger.debug('TTS stream completed');
-          if (onDone) onDone();
-        }
-      });
-
-      websocket.on('error', (error) => {
-        cartesiaLogger.error('Cartesia WebSocket error', error);
-        onError(error);
-      });
-
-      cartesiaLogger.info('Cartesia WebSocket stream started', {
+      cartesiaLogger.info('Cartesia WebSocket connected', {
         voiceId: voiceId || this.defaultVoiceId,
         model: 'sonic-3',
         encoding: 'pcm_mulaw',
         sampleRate: 8000,
       });
 
-      return websocket;
+      return this.websocket;
     } catch (error) {
-      cartesiaLogger.error('Failed to start Cartesia stream', error);
+      cartesiaLogger.error('Failed to connect to Cartesia', error);
       throw error;
     }
   }
 
   /**
-   * Send text to streaming TTS
-   * @param {Object} websocket - Cartesia WebSocket connection
+   * Speak text via TTS (creates a new stream for this utterance)
    * @param {string} text - Text to synthesize
+   * @param {Function} onAudioChunk - Callback for each audio chunk
+   * @returns {Promise<void>} Resolves when audio is complete
    */
-  async sendText(websocket, text) {
-    try {
-      await websocket.send(text);
-      cartesiaLogger.debug('Text sent to TTS stream', {
-        textLength: text.length,
-      });
-    } catch (error) {
-      cartesiaLogger.error('Error sending text to TTS stream', error);
-    }
+  async speakText(text, onAudioChunk) {
+    return new Promise((resolve, reject) => {
+      try {
+        const startTime = Date.now();
+
+        cartesiaLogger.debug('Sending text to Cartesia', {
+          textLength: text.length,
+          text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        });
+
+        // Send text and get back a stream object for THIS utterance
+        const stream = this.websocket.send({
+          transcript: text,
+        });
+
+        let chunkCount = 0;
+        let totalBytes = 0;
+        let firstChunkTime = null;
+
+        // Handle audio chunks from this stream
+        stream.on('message', (message) => {
+          if (message.type === 'chunk') {
+            if (chunkCount === 0) {
+              firstChunkTime = Date.now();
+              const ttfb = firstChunkTime - startTime;
+              cartesiaLogger.info('🎵 TTS FIRST CHUNK (TTFB)', {
+                ttfb: `${ttfb}ms`,
+                textLength: text.length,
+              });
+            }
+
+            chunkCount++;
+            totalBytes += message.data.length;
+
+            // Send audio chunk to caller (e.g., Twilio)
+            onAudioChunk(message.data);
+
+            cartesiaLogger.debug('📡 AUDIO CHUNK', {
+              chunkNumber: chunkCount,
+              chunkSize: message.data.length,
+              totalBytes,
+            });
+          } else if (message.type === 'done') {
+            const endTime = Date.now();
+            const totalLatency = endTime - startTime;
+            const ttfb = firstChunkTime ? firstChunkTime - startTime : null;
+
+            cartesiaLogger.info('✅ TTS STREAMING COMPLETE', {
+              textLength: text.length,
+              chunks: chunkCount,
+              totalBytes,
+              audioSeconds: (totalBytes / 8000).toFixed(1),
+              ttfb: ttfb ? `${ttfb}ms` : 'N/A',
+              totalLatency: `${totalLatency}ms`,
+              msPerChar: (totalLatency / text.length).toFixed(1),
+            });
+
+            resolve();
+          }
+        });
+
+        // Handle errors
+        stream.on('error', (error) => {
+          cartesiaLogger.error('❌ Cartesia stream error', error);
+          reject(error);
+        });
+      } catch (error) {
+        cartesiaLogger.error('Error speaking text', error);
+        reject(error);
+      }
+    });
   }
 
   /**
-   * Close the TTS stream
-   * @param {Object} websocket - Cartesia WebSocket connection
+   * Close the WebSocket connection
    */
-  async closeStream(websocket) {
+  async disconnect() {
     try {
-      await websocket.disconnect();
-      cartesiaLogger.info('Cartesia stream closed');
+      if (this.websocket) {
+        await this.websocket.disconnect();
+        cartesiaLogger.info('Cartesia WebSocket disconnected');
+      }
     } catch (error) {
-      cartesiaLogger.error('Error closing Cartesia stream', error);
+      cartesiaLogger.error('Error disconnecting from Cartesia', error);
     }
   }
 }
