@@ -177,6 +177,8 @@ export async function handleTwilioStream(ws) {
    * Handle transcript from Deepgram
    */
   async function onTranscript(transcriptText) {
+    const transcriptReceivedAt = Date.now();
+
     try {
       twilioLogger.info('User said', { text: transcriptText });
 
@@ -193,8 +195,10 @@ export async function handleTwilioStream(ws) {
         content: transcriptText,
       });
 
-      // Get LLM response
+      // Get LLM response with timing
+      const llmStartTime = Date.now();
       const response = await llmRouter.chat(messages, callSid, FUNCTIONS);
+      const llmEndTime = Date.now();
 
       llmCalls++;
       totalLatency += response.latency;
@@ -206,14 +210,25 @@ export async function handleTwilioStream(ws) {
         await handleFunctionCall(response.functionCall);
       }
 
-      // Handle text response
+      // Handle text response with timing
       if (response.content) {
         messages.push({
           role: 'assistant',
           content: response.content,
         });
 
+        const ttsStartTime = Date.now();
         await sendAIResponse(response.content);
+        const ttsEndTime = Date.now();
+
+        // Log detailed latency breakdown
+        twilioLogger.info('Response timing breakdown', {
+          callSid,
+          llmLatency: `${llmEndTime - llmStartTime}ms`,
+          ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
+          totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
+          responseLength: response.content.length,
+        });
       }
     } catch (error) {
       twilioLogger.error('Error processing transcript', error);
@@ -341,14 +356,18 @@ export async function handleTwilioStream(ws) {
       if (msg.event === 'start') {
         callSid = msg.start.callSid;
         streamSid = msg.start.streamSid;
-        fromNumber = msg.start.customParameters?.From || msg.start.from;
-        toNumber = msg.start.customParameters?.To || msg.start.to;
+
+        // Extract phone numbers from custom parameters (sent via Stream TwiML)
+        fromNumber = msg.start.customParameters?.From;
+        toNumber = msg.start.customParameters?.To;
+
         startTime = new Date().toISOString();
 
         twilioLogger.info('Call started', {
           callSid,
           from: fromNumber,
           to: toNumber,
+          customParameters: msg.start.customParameters,
         });
 
         await initialize(toNumber, fromNumber);
