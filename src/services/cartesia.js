@@ -273,10 +273,10 @@ export class CartesiaService {
           encoding: 'pcm_mulaw',
           sample_rate: 8000,
         },
-        WebSocket: WebSocket, // Provide WebSocket implementation for partysocket
       });
 
-      await websocket.connect();
+      // Provide WebSocket implementation to connect() for partysocket (Node.js requirement)
+      await websocket.connect({ WebSocket: WebSocket });
 
       websocket.on('message', (message) => {
         if (message.type === 'chunk') {
