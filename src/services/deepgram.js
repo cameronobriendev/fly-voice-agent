@@ -35,6 +35,11 @@ export class DeepgramService {
         encoding: 'mulaw',
         sample_rate: 8000,
         channels: 1,
+
+        // Aggressive endpointing for snappy phone conversation response
+        endpointing: 300,        // Finalize after 300ms silence (default ~1000ms)
+        vad_turnoff: 400,        // Voice Activity Detection cutoff - faster turn detection
+        utterance_end_ms: 1000,  // Force finalization after 1s to prevent long waits
       });
 
       connection.on(LiveTranscriptionEvents.Open, () => {
