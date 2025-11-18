@@ -59,33 +59,17 @@ function generateStreamTwiML(to, from) {
 }
 
 /**
- * Generate TwiML for playing ringback tone then redirecting
- */
-function generateRingbackTwiML(redirectUrl) {
-  // New ringback pattern: 2s ring, 4s silence, 2s ring (North American standard)
-  const ringbackUrl = process.env.RINGBACK_URL || 'https://fly-voice-agent-red-darkness-2650.fly.dev/public/ringback-pattern.wav';
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-  <Play action="${xmlEscape(redirectUrl)}">${xmlEscape(ringbackUrl)}</Play>
-</Response>`;
-}
-
-/**
  * Router endpoint handler
+ * Immediately connects all calls to voice agent WebSocket stream
+ * Ringback is played through the stream during initialization
  */
 export function handleTwilioRouter(req, res) {
   const { To, From, CallSid } = req.body;
-
-  // Get action from query parameter
-  const url = new URL(req.url, `https://${req.headers.host}`);
-  const action = url.searchParams.get('action');
 
   routerLogger.info('Incoming call received', {
     to: To,
     from: From,
     callSid: CallSid,
-    action: action || 'ringback',
   });
 
   // Check if this is the blocked number
@@ -99,30 +83,14 @@ export function handleTwilioRouter(req, res) {
     return res.send(generateHangupTwiML());
   }
 
-  // Phase 2: Connect to voice agent stream
-  if (action === 'stream') {
-    routerLogger.info('Connecting to voice agent stream', {
-      to: To,
-      from: From,
-      callSid: CallSid,
-      streamUrl: STREAM_URL,
-    });
-
-    res.type('text/xml');
-    return res.send(generateStreamTwiML(To, From));
-  }
-
-  // Phase 1: Play ringback tone, then redirect to stream
-  const redirectUrl = new URL(url.toString());
-  redirectUrl.searchParams.set('action', 'stream');
-
-  routerLogger.info('Playing ringback tone', {
+  // Connect to voice agent stream immediately
+  routerLogger.info('Connecting to voice agent stream', {
     to: To,
     from: From,
     callSid: CallSid,
-    redirectUrl: redirectUrl.toString(),
+    streamUrl: STREAM_URL,
   });
 
   res.type('text/xml');
-  return res.send(generateRingbackTwiML(redirectUrl.toString()));
+  return res.send(generateStreamTwiML(To, From));
 }

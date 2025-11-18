@@ -18,8 +18,27 @@ import { sendToWebhook } from './post-call.js';
 import { onCallStart, onCallEnd } from './metrics.js';
 import { FUNCTIONS } from '../prompts/template.js';
 import { logger } from '../utils/logger.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const twilioLogger = logger.child('TWILIO');
+
+// Load ringback audio at module level (PCM 16-bit 8kHz WAV, needs conversion to mulaw)
+let ringbackAudioRaw = null;
+try {
+  const ringbackPath = path.join(__dirname, '../../public/ringback-pattern.wav');
+  ringbackAudioRaw = fs.readFileSync(ringbackPath);
+  twilioLogger.info('Ringback audio loaded', {
+    path: ringbackPath,
+    size: ringbackAudioRaw.length,
+  });
+} catch (error) {
+  twilioLogger.error('Failed to load ringback audio', error);
+}
 
 /**
  * Handle Twilio WebSocket stream
@@ -66,6 +85,93 @@ export async function handleTwilioStream(ws) {
   let totalLatency = 0;
   let totalCost = 0;
   let primaryProvider = null;
+
+  /**
+   * Convert 16-bit PCM sample to 8-bit mulaw
+   * Mulaw is logarithmic compression used by Twilio Media Streams
+   */
+  function pcmToMulaw(pcm) {
+    const MULAW_MAX = 0x1FFF;
+    const MULAW_BIAS = 33;
+    let mask = 0x1000;
+    let sign = 0;
+    let position = 12;
+    let lsb = 0;
+
+    // Get sign and absolute value
+    if (pcm < 0) {
+      pcm = -pcm;
+      sign = 0x80;
+    }
+
+    // Add bias
+    pcm += MULAW_BIAS;
+    if (pcm > MULAW_MAX) pcm = MULAW_MAX;
+
+    // Convert to mulaw
+    for (; position >= 5; position--, mask >>= 1) {
+      if (pcm & mask) break;
+    }
+
+    lsb = (pcm >> (position - 4)) & 0x0F;
+    return ~(sign | ((position - 5) << 4) | lsb);
+  }
+
+  /**
+   * Send ringback audio through WebSocket to Twilio
+   * Plays while services initialize in parallel
+   */
+  async function sendRingbackAudio() {
+    if (!ringbackAudioRaw || !streamSid) {
+      twilioLogger.warn('Cannot send ringback - audio or streamSid missing');
+      return;
+    }
+
+    try {
+      twilioLogger.info('Sending ringback audio through WebSocket', {
+        callSid,
+        audioSize: ringbackAudioRaw.length,
+      });
+
+      // Skip WAV header (44 bytes) and get PCM data
+      const pcmData = ringbackAudioRaw.slice(44);
+      const mulawData = Buffer.alloc(pcmData.length / 2); // 16-bit PCM to 8-bit mulaw
+
+      // Convert PCM 16-bit to mulaw 8-bit
+      for (let i = 0; i < pcmData.length; i += 2) {
+        const pcmSample = pcmData.readInt16LE(i);
+        mulawData[i / 2] = pcmToMulaw(pcmSample);
+      }
+
+      // Send audio in chunks (Twilio expects 20ms chunks = 160 bytes at 8kHz mulaw)
+      const CHUNK_SIZE = 160; // 20ms of 8kHz mulaw audio
+      for (let offset = 0; offset < mulawData.length; offset += CHUNK_SIZE) {
+        const chunk = mulawData.slice(offset, offset + CHUNK_SIZE);
+        const base64Audio = chunk.toString('base64');
+
+        ws.send(
+          JSON.stringify({
+            event: 'media',
+            streamSid: streamSid,
+            media: {
+              payload: base64Audio,
+            },
+          })
+        );
+
+        // Wait 20ms between chunks to match real-time playback
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+
+      twilioLogger.info('Ringback audio sent successfully', {
+        callSid,
+        chunks: Math.ceil(mulawData.length / CHUNK_SIZE),
+        duration: `${(mulawData.length / 8000).toFixed(1)}s`,
+      });
+    } catch (error) {
+      twilioLogger.error('Error sending ringback audio', error);
+    }
+  }
 
   /**
    * Get initial greeting based on call type and demo request lookup
@@ -126,9 +232,25 @@ export async function handleTwilioStream(ws) {
 
   /**
    * Initialize services and user config
+   * Plays ringback audio FIRST to keep connection alive, then initializes services in parallel
    */
   async function initialize(twilioNumber, callerNumber) {
     try {
+      const initStartTime = Date.now();
+
+      // STEP 1: Send ringback audio immediately (non-blocking, plays for ~8 seconds)
+      twilioLogger.info('Starting initialization with ringback', {
+        callSid,
+        twilioNumber,
+        callerNumber,
+      });
+
+      // Start ringback playback (runs in parallel with initialization)
+      const ringbackPromise = sendRingbackAudio();
+
+      // STEP 2: Initialize everything in parallel while ringback plays
+      twilioLogger.info('Initializing services while ringback plays', { callSid });
+
       // Fetch user configuration from database
       userConfig = await getUserByPhone(twilioNumber);
       userId = userConfig.user_id;
@@ -172,11 +294,23 @@ export async function handleTwilioStream(ws) {
       // Increased to 300ms to ensure WebSocket is fully ready to send data
       await new Promise(resolve => setTimeout(resolve, 300));
 
+      const initEndTime = Date.now();
+      const initDuration = initEndTime - initStartTime;
+
       twilioLogger.info('Services initialized', {
         callSid,
         sttProvider: 'Deepgram',
         ttsProvider: 'Cartesia WebSocket',
         ttsVoiceId: voiceId || 'default',
+        initDuration: `${initDuration}ms`,
+      });
+
+      // STEP 3: Wait for ringback to finish before sending greeting
+      await ringbackPromise;
+
+      twilioLogger.info('Ringback complete, sending greeting', {
+        callSid,
+        totalInitTime: `${Date.now() - initStartTime}ms`,
       });
 
       // Get and send initial greeting (customizable or fallback)
