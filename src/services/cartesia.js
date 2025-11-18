@@ -300,9 +300,10 @@ export class CartesiaService {
       try {
         const startTime = Date.now();
 
-        cartesiaLogger.debug('Sending text to Cartesia', {
+        cartesiaLogger.debug('🔊 Sending text to Cartesia WebSocket', {
           textLength: text.length,
           text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+          websocketState: this.websocket ? 'exists' : 'null',
         });
 
         // Send text and get back a stream object for THIS utterance
@@ -310,14 +311,31 @@ export class CartesiaService {
           transcript: text,
         });
 
+        cartesiaLogger.debug('📡 Stream object created', {
+          streamType: typeof stream,
+          hasOn: typeof stream.on === 'function',
+        });
+
         let chunkCount = 0;
         let totalBytes = 0;
         let firstChunkTime = null;
+
+        // Timeout warning if no chunks received after 2 seconds
+        const noChunksTimeout = setTimeout(() => {
+          if (chunkCount === 0) {
+            cartesiaLogger.warn('⚠️ NO AUDIO CHUNKS RECEIVED AFTER 2 SECONDS', {
+              textLength: text.length,
+              elapsedTime: `${Date.now() - startTime}ms`,
+              possibleCause: 'WebSocket not ready or connection issue',
+            });
+          }
+        }, 2000);
 
         // Handle audio chunks from this stream
         stream.on('message', (message) => {
           if (message.type === 'chunk') {
             if (chunkCount === 0) {
+              clearTimeout(noChunksTimeout); // Clear warning timeout
               firstChunkTime = Date.now();
               const ttfb = firstChunkTime - startTime;
               cartesiaLogger.info('🎵 TTS FIRST CHUNK (TTFB)', {
@@ -338,6 +356,7 @@ export class CartesiaService {
               totalBytes,
             });
           } else if (message.type === 'done') {
+            clearTimeout(noChunksTimeout); // Clear warning timeout
             const endTime = Date.now();
             const totalLatency = endTime - startTime;
             const ttfb = firstChunkTime ? firstChunkTime - startTime : null;
@@ -358,6 +377,7 @@ export class CartesiaService {
 
         // Handle errors
         stream.on('error', (error) => {
+          clearTimeout(noChunksTimeout); // Clear warning timeout
           cartesiaLogger.error('❌ Cartesia stream error', error);
           reject(error);
         });
@@ -366,6 +386,24 @@ export class CartesiaService {
         reject(error);
       }
     });
+  }
+
+  /**
+   * Speak text with timeout protection (fail fast if TTS hangs)
+   * @param {string} text - Text to synthesize
+   * @param {Function} onAudioChunk - Callback for each audio chunk
+   * @param {number} timeoutMs - Timeout in milliseconds (default 10000 = 10 seconds)
+   * @returns {Promise<void>} Resolves when audio is complete or rejects on timeout
+   */
+  async speakTextWithTimeout(text, onAudioChunk, timeoutMs = 10000) {
+    return Promise.race([
+      this.speakText(text, onAudioChunk),
+      new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`TTS timeout: No audio received after ${timeoutMs}ms. Text: "${text.substring(0, 50)}...". Possible cause: WebSocket not ready or connection issue.`));
+        }, timeoutMs);
+      })
+    ]);
   }
 
   /**

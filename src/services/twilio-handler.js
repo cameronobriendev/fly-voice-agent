@@ -169,7 +169,8 @@ export async function handleTwilioStream(ws) {
 
       // CRITICAL: Wait for SDK's onopen handler to execute (fixes microtask race condition)
       // The connect() Promise resolves before the SDK sets its internal _isConnected flag
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Increased to 300ms to ensure WebSocket is fully ready to send data
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       twilioLogger.info('Services initialized', {
         callSid,
@@ -369,8 +370,8 @@ export async function handleTwilioStream(ws) {
         timestamp: new Date().toISOString(),
       });
 
-      // Speak text and send audio chunks to Twilio
-      await cartesia.speakText(text, (audioChunk) => {
+      // Speak text and send audio chunks to Twilio (with 10s timeout protection)
+      await cartesia.speakTextWithTimeout(text, (audioChunk) => {
         // Send audio chunk to Twilio (streaming)
         const base64Audio = audioChunk.toString('base64');
         ws.send(
@@ -382,7 +383,7 @@ export async function handleTwilioStream(ws) {
             },
           })
         );
-      });
+      }, 10000); // 10 second timeout
     } catch (error) {
       twilioLogger.error('Error in sendAIResponse', error);
       throw error;
