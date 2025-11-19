@@ -384,6 +384,45 @@ body {
   font-weight: 500;
 }
 
+/* Animated dot for conversation loop */
+.flow-grid-loop {
+  position: relative;
+}
+
+.flow-dot {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: #8b5cf6;
+  border-radius: 50%;
+  box-shadow: 0 0 15px #8b5cf6, 0 0 30px rgba(139, 92, 246, 0.5);
+  animation: dotLoop 6s ease-in-out infinite;
+  z-index: 10;
+}
+
+@keyframes dotLoop {
+  0%, 100% {
+    top: 0;
+    left: 0;
+    transform: translate(-50%, -50%);
+  }
+  25% {
+    top: 0;
+    left: 100%;
+    transform: translate(-50%, -50%);
+  }
+  50% {
+    top: 100%;
+    left: 100%;
+    transform: translate(-50%, -50%);
+  }
+  75% {
+    top: 100%;
+    left: 0;
+    transform: translate(-50%, -50%);
+  }
+}
+
 .flow-caption {
   text-align: center;
   font-size: 0.9rem;
