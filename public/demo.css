@@ -317,27 +317,54 @@ body {
   margin-bottom: 0.5rem;
 }
 
-.flow-loop-label {
-  text-align: center;
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.7);
-  margin-top: 0.5rem;
-  font-style: italic;
+.flow-connector {
+  display: flex;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+
+.flow-connector svg {
+  width: 24px;
+  height: 40px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.flow-loop-arrow {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+.flow-loop-arrow svg {
+  width: 100%;
+  max-width: 480px;
+  height: 50px;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.flow-loop-arrow span {
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: -0.25rem;
 }
 
 .flow-step {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  padding: 1.25rem 1rem;
+  gap: 0.35rem;
+  padding: 1rem 0.75rem;
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 12px;
-  min-width: 120px;
+  width: 100px;
+  height: 120px;
   transition: all 0.3s ease;
   position: relative;
   cursor: pointer;
+  justify-content: center;
 }
 
 .flow-step:hover {
@@ -396,32 +423,23 @@ body {
 }
 
 .flow-title {
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #ffffff;
   white-space: nowrap;
 }
 
-.flow-tools {
-  list-style: none;
-  padding: 0;
-  margin: 0.25rem 0 0 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-}
-
-.flow-tools li {
+.flow-tool-name {
   font-size: 0.65rem;
-  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
   text-align: center;
 }
 
-.flow-tools li::before {
-  content: '•';
-  margin-right: 0.3rem;
-  color: rgba(255, 255, 255, 0.4);
+.flow-tool-desc {
+  font-size: 0.55rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
 }
 
 .flow-arrow {
