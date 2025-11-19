@@ -303,17 +303,15 @@ export async function handleTwilioStream(ws) {
       });
 
       // STEP 4: Connect to Cartesia WebSocket NOW (fresh connection, used immediately)
+      // v2.x: No delay needed - lazy connection works on first send()
       const voiceId = userConfig?.ai_voice_id || null;
       cartesia = new CartesiaService();
       cartesiaConnection = await cartesia.connect(voiceId);
 
-      // Wait for SDK's onopen handler to execute (fixes microtask race condition)
-      await new Promise(resolve => setTimeout(resolve, 300));
-
       const cartesiaConnectedTime = Date.now();
-      twilioLogger.info('Cartesia connected and ready', {
+      twilioLogger.info('Cartesia connected and ready (v2.x)', {
         callSid,
-        ttsProvider: 'Cartesia WebSocket',
+        ttsProvider: 'Cartesia WebSocket v2.x',
         ttsVoiceId: voiceId || 'default',
         connectionTime: `${cartesiaConnectedTime - preRingbackEndTime}ms`,
         totalInitTime: `${cartesiaConnectedTime - initStartTime}ms`,
@@ -496,16 +494,26 @@ export async function handleTwilioStream(ws) {
 
   /**
    * Send AI response via TTS (WebSocket streaming with automatic retry)
+   * v2.x: Includes idle connection refresh check
    */
   async function sendAIResponse(text) {
     try {
+      // Check if connection needs refresh (5-min idle timeout)
+      if (cartesia.needsRefresh()) {
+        twilioLogger.warn('Refreshing Cartesia before 5-min idle timeout', {
+          callSid,
+        });
+        await cartesia.disconnect();
+        await cartesia.connect(userConfig?.ai_voice_id);
+      }
+
       // LOG TTS REQUEST
-      twilioLogger.debug('🔊 TTS STREAMING REQUEST', {
+      twilioLogger.debug('🔊 TTS STREAMING REQUEST (v2.x)', {
         callSid,
         text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
         textLength: text.length,
         voiceId: userConfig?.ai_voice_id || 'default',
-        method: 'websocket-streaming-with-retry',
+        method: 'websocket-streaming-with-retry-v2',
       });
 
       // Add to transcript
@@ -516,9 +524,9 @@ export async function handleTwilioStream(ws) {
       });
 
       // Speak text with automatic retry if timeout occurs
-      // Will reconnect WebSocket and try once more if first attempt fails
+      // v2.x: audioChunk is already a Buffer from cartesia.js
       await cartesia.speakTextWithRetry(text, (audioChunk) => {
-        // Send audio chunk to Twilio (streaming)
+        // Convert Buffer to Base64 for Twilio
         const base64Audio = audioChunk.toString('base64');
         ws.send(
           JSON.stringify({
