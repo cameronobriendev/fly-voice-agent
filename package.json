@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:ws-direct": "node test/test-ws-direct.js",
+    "test:diagnostic": "node test/cartesia-diagnostic.js"
   },
   "keywords": [
     "voice-ai",
