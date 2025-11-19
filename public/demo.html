@@ -31,55 +31,79 @@
         <!-- How It Works Flow Diagram -->
         <div class="flow-section">
           <h3>How It Works</h3>
-          <div class="flow-container">
-            <div class="flow-step" data-tooltip="Your phone call connects to our server instantly via real-time audio streaming">
-              <div class="flow-icon">📞</div>
-              <div class="flow-title">You Call</div>
-              <ul class="flow-tools">
-                <li>Twilio Media Streams</li>
-              </ul>
+
+          <!-- Phase 1: The Connection -->
+          <div class="flow-phase">
+            <div class="flow-container flow-connection">
+              <div class="flow-step" data-tooltip="Your phone call is answered instantly and connected to our server">
+                <div class="flow-icon">📞</div>
+                <div class="flow-title">You Call</div>
+              </div>
+              <div class="flow-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </div>
+              <div class="flow-step" data-tooltip="Twilio answers and streams your audio in real-time">
+                <div class="flow-icon">✅</div>
+                <div class="flow-title">We Answer</div>
+                <ul class="flow-tools">
+                  <li>Twilio</li>
+                </ul>
+              </div>
             </div>
-            <div class="flow-arrow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-            <div class="flow-step" data-tooltip="Your voice is converted to text in real-time with 200ms latency">
-              <div class="flow-icon">👂</div>
-              <div class="flow-title">We Listen</div>
-              <ul class="flow-tools">
-                <li>Deepgram STT</li>
-              </ul>
-            </div>
-            <div class="flow-arrow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-            <div class="flow-step" data-tooltip="AI understands your request and generates a helpful response in ~1 second">
-              <div class="flow-icon">🧠</div>
-              <div class="flow-title">AI Thinks</div>
-              <ul class="flow-tools">
-                <li>Groq</li>
-                <li>Llama 3.3 70B</li>
-              </ul>
-            </div>
-            <div class="flow-arrow">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-              </svg>
-            </div>
-            <div class="flow-step" data-tooltip="The response is spoken back to you in a natural human voice">
-              <div class="flow-icon">🗣️</div>
-              <div class="flow-title">We Respond</div>
-              <ul class="flow-tools">
-                <li>Cartesia TTS</li>
-              </ul>
-            </div>
-            <!-- Animated traveling dot -->
-            <div class="flow-dot"></div>
           </div>
-          <p class="flow-caption">Hover each step to learn more</p>
+
+          <!-- Phase 2: The Conversation Loop -->
+          <div class="flow-phase">
+            <div class="flow-container flow-loop">
+              <div class="flow-step" data-tooltip="You speak naturally, just like a normal phone call">
+                <div class="flow-icon">🎤</div>
+                <div class="flow-title">You Speak</div>
+              </div>
+              <div class="flow-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </div>
+              <div class="flow-step" data-tooltip="Your voice is converted to text in real-time">
+                <div class="flow-icon">👂</div>
+                <div class="flow-title">We Listen</div>
+                <ul class="flow-tools">
+                  <li>Deepgram</li>
+                </ul>
+              </div>
+              <div class="flow-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </div>
+              <div class="flow-step" data-tooltip="AI understands what you said and generates a helpful response">
+                <div class="flow-icon">🧠</div>
+                <div class="flow-title">AI Thinks</div>
+                <ul class="flow-tools">
+                  <li>Groq</li>
+                </ul>
+              </div>
+              <div class="flow-arrow">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M5 12h14M12 5l7 7-7 7"/>
+                </svg>
+              </div>
+              <div class="flow-step" data-tooltip="The response is spoken back to you in a natural voice">
+                <div class="flow-icon">🗣️</div>
+                <div class="flow-title">We Respond</div>
+                <ul class="flow-tools">
+                  <li>Cartesia</li>
+                </ul>
+              </div>
+              <!-- Animated traveling dot -->
+              <div class="flow-dot"></div>
+            </div>
+            <p class="flow-loop-label">↻ Repeats naturally</p>
+          </div>
+
+          <p class="flow-caption">All within fractions of a second</p>
         </div>
 
         <!-- How It's Built Section -->
