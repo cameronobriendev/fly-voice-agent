@@ -47,14 +47,15 @@ async function testDirectWebSocket() {
       console.log('✅ WebSocket OPEN event fired');
       console.log('   Connection successful!\n');
 
-      // Send a test TTS request
+      // Send a test TTS request (WebSocket API uses snake_case!)
       const request = {
+        context_id: 'test-ws-12345',  // Required field
         model_id: 'sonic-3',
         voice: {
           mode: 'id',
           id: '9626c31c-bec5-4cca-baa8-f8ba9e84c8bc'
         },
-        transcript: 'Test',
+        transcript: 'Test.',
         language: 'en',
         output_format: {
           container: 'raw',
@@ -63,26 +64,44 @@ async function testDirectWebSocket() {
         }
       };
 
-      console.log('Sending TTS request...');
+      console.log('Sending TTS request with context_id:', request.context_id);
       ws.send(JSON.stringify(request));
     });
 
-    ws.on('message', (data) => {
-      console.log('✅ MESSAGE received');
-      console.log(`   Size: ${data.length} bytes`);
-      console.log(`   Type: ${typeof data}`);
+    let chunkCount = 0;
+    let firstChunkTime = null;
+    const startTime = Date.now();
 
+    ws.on('message', (data) => {
       // Parse if JSON
       try {
         const parsed = JSON.parse(data.toString());
-        console.log('   JSON:', JSON.stringify(parsed, null, 2));
-      } catch (e) {
-        console.log('   Binary data (not JSON)');
-      }
+        console.log(`✅ MESSAGE received (JSON)`);
+        console.log(`   Type: ${parsed.type}`);
+        console.log('   Data:', JSON.stringify(parsed, null, 2));
 
-      console.log('\n✅ SUCCESS: WebSocket works perfectly!');
-      ws.close();
-      resolve();
+        if (parsed.type === 'chunk') {
+          chunkCount++;
+          if (!firstChunkTime) {
+            firstChunkTime = Date.now();
+            console.log(`   🎵 FIRST AUDIO CHUNK - TTFB: ${firstChunkTime - startTime}ms`);
+          }
+        } else if (parsed.type === 'done') {
+          const totalTime = Date.now() - startTime;
+          console.log(`\n✅ SUCCESS: Received ${chunkCount} audio chunks in ${totalTime}ms`);
+          console.log('   WebSocket TTS works perfectly!');
+          ws.close();
+          resolve();
+        } else if (parsed.type === 'error') {
+          console.log(`\n❌ Cartesia returned error: ${parsed.error}`);
+          ws.close();
+          reject(new Error(parsed.error));
+        }
+      } catch (e) {
+        console.log(`✅ MESSAGE received (Binary)`);
+        console.log(`   Size: ${data.length} bytes`);
+        chunkCount++;
+      }
     });
 
     ws.on('error', (error) => {
