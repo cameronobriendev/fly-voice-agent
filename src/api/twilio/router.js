@@ -2,23 +2,27 @@
  * Twilio Smart Router
  *
  * Routes incoming calls based on the number called:
- * - +14374282102: Hangs up immediately (dead number)
+ * - Blocked numbers: Hangs up immediately
  * - All other numbers: Connects to Fly.io WebSocket voice agent
  *
  * Usage:
  * Point ALL Twilio numbers to this single URL:
- * https://fly-voice-agent-red-darkness-2650.fly.dev/api/twilio/router
+ * https://your-app.fly.dev/api/twilio/router
  */
 
 import { logger } from '../../utils/logger.js';
 
 const routerLogger = logger.child('TWILIO_ROUTER');
 
-// Number that should hang up immediately
-const BLOCKED_NUMBER = '+14374282102';
+// Number that should hang up immediately (optional)
+const BLOCKED_NUMBER = process.env.BLOCKED_NUMBER || '';
 
-// WebSocket stream URL for voice agent
-const STREAM_URL = process.env.FLY_STREAM_URL || 'wss://fly-voice-agent-red-darkness-2650.fly.dev/stream';
+// WebSocket stream URL for voice agent (required)
+const STREAM_URL = process.env.FLY_STREAM_URL;
+
+if (!STREAM_URL) {
+  throw new Error('FLY_STREAM_URL environment variable is required');
+}
 
 /**
  * Escape XML special characters
@@ -73,7 +77,7 @@ export function handleTwilioRouter(req, res) {
   });
 
   // Check if this is the blocked number
-  if (To === BLOCKED_NUMBER) {
+  if (BLOCKED_NUMBER && To === BLOCKED_NUMBER) {
     routerLogger.info('Blocked number called - hanging up', {
       number: To,
       callSid: CallSid,

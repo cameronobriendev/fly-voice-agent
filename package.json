@@ -19,8 +19,16 @@
     "gemini",
     "cartesia"
   ],
-  "author": "BrassHelm",
+  "author": "Cameron O'Brien",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cameronobriendev/fly-voice-agent"
+  },
+  "homepage": "https://github.com/cameronobriendev/fly-voice-agent#readme",
+  "bugs": {
+    "url": "https://github.com/cameronobriendev/fly-voice-agent/issues"
+  },
   "dependencies": {
     "@cartesia/cartesia-js": "^2.2.9",
     "@deepgram/sdk": "^3.4.0",

@@ -96,6 +96,10 @@ See `.env.example` for required configuration:
 - `PORT` - Server port (default: 8080)
 - `NODE_ENV` - Environment (development/production)
 
+### Fly.io Configuration (Required)
+- `FLY_STREAM_URL` - Your WebSocket stream URL (e.g., `wss://your-app.fly.dev/stream`)
+- `CORS_ORIGINS` - Comma-separated list of allowed origins for admin API
+
 ### Database
 - `DATABASE_URL` - Neon PostgreSQL connection string
 
@@ -109,11 +113,12 @@ See `.env.example` for required configuration:
 - `WEBHOOK_URL` - External webhook URL for call data
 - `WEBHOOK_SECRET` - Secret for webhook verification
 
-### Metrics
-- `METRICS_API_KEY` - API key for accessing metrics endpoint
+### Admin API
+- `ADMIN_API_KEY` - API key for accessing admin endpoints
 
 ### Optional
 - `LLM_PROVIDER` - Force LLM provider (auto, groq, or gemini)
+- `BLOCKED_NUMBER` - Phone number to block from connecting
 
 ## Project Structure
 
@@ -148,7 +153,7 @@ curl -L https://fly.io/install.sh | sh
 # Login to Fly.io
 fly auth login
 
-# Launch app (creates fly.toml)
+# Launch app (creates fly.toml with your app name)
 fly launch
 
 # Set secrets (do NOT put in fly.toml)
@@ -157,13 +162,39 @@ fly secrets set DEEPGRAM_API_KEY="..."
 fly secrets set GROQ_API_KEY="..."
 fly secrets set GOOGLE_API_KEY="..."
 fly secrets set CARTESIA_API_KEY="..."
-fly secrets set WEBHOOK_URL="..."
-fly secrets set WEBHOOK_SECRET="..."
-fly secrets set METRICS_API_KEY="..."
+fly secrets set FLY_STREAM_URL="wss://your-app-name.fly.dev/stream"
+fly secrets set CORS_ORIGINS="https://your-domain.com"
+fly secrets set ADMIN_API_KEY="your-random-32-char-hex"
+fly secrets set WEBHOOK_URL="https://your-domain.com/api/webhooks/call-data"
+fly secrets set WEBHOOK_SECRET="your-webhook-secret"
 
 # Deploy
 fly deploy
 ```
+
+### Customization for Your Deployment
+
+When deploying your own instance, you'll need to customize:
+
+1. **App Name**: Run `fly launch` to generate your own app name, or edit `fly.toml`:
+   ```toml
+   app = 'your-app-name'
+   ```
+
+2. **Stream URL**: Set `FLY_STREAM_URL` to your app's WebSocket endpoint:
+   ```bash
+   fly secrets set FLY_STREAM_URL="wss://your-app-name.fly.dev/stream"
+   ```
+
+3. **CORS Origins**: Set allowed origins for your admin dashboard:
+   ```bash
+   fly secrets set CORS_ORIGINS="https://your-admin-domain.com,https://your-app.com"
+   ```
+
+4. **Twilio Webhook**: Point your Twilio number's webhook to:
+   ```
+   https://your-app-name.fly.dev/api/twilio/router
+   ```
 
 ### Updating Deployment
 

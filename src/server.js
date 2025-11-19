@@ -30,13 +30,14 @@ const serverLogger = logger.child('SERVER');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// CORS Configuration - Allow requests from LeadSaveAI admin dashboard
+// CORS Configuration - configurable via environment variable
+// Set CORS_ORIGINS as comma-separated list: "https://app.example.com,https://example.com"
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(s => s.trim())
+  : ['http://localhost:3000'];
+
 app.use(cors({
-  origin: [
-    'https://app.leadsaveai.com',
-    'http://localhost:3000', // For local development
-    'https://leadsaveai.com'
-  ],
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
