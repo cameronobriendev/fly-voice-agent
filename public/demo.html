@@ -34,23 +34,18 @@
 
           <!-- Phase 1: The Connection -->
           <div class="flow-phase">
-            <div class="flow-container flow-connection">
-              <div class="flow-step">
-                <div class="flow-icon">📞</div>
-                <div class="flow-title">You Call</div>
-                <div class="flow-tool-name">&nbsp;</div>
-                <div class="flow-tool-desc">Dial number</div>
+            <h4 class="phase-label">Phase 1: Connection</h4>
+            <div class="flow-grid">
+              <div class="flow-card">
+                <div class="flow-card-icon">📞</div>
+                <div class="flow-card-title">You Call</div>
+                <div class="flow-card-explanation">Dial our demo number from any phone - landline or mobile.</div>
               </div>
-              <div class="flow-arrow">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </div>
-              <div class="flow-step">
-                <div class="flow-icon">✅</div>
-                <div class="flow-title">We Answer</div>
-                <div class="flow-tool-name">Twilio</div>
-                <div class="flow-tool-desc">Phone connection</div>
+              <div class="flow-card">
+                <div class="flow-card-icon">✅</div>
+                <div class="flow-card-title">We Answer</div>
+                <div class="flow-card-badge">Twilio</div>
+                <div class="flow-card-explanation">Twilio is a cloud platform that routes phone calls through the internet, connecting your call to our AI system instead of a traditional phone line.</div>
               </div>
             </div>
           </div>
@@ -63,59 +58,40 @@
           </div>
 
           <!-- Phase 2: The Conversation Loop -->
-          <div class="flow-phase flow-phase-loop">
-            <div class="flow-container flow-loop">
-              <div class="flow-step">
-                <div class="flow-icon">🎤</div>
-                <div class="flow-title">You Speak</div>
-                <div class="flow-tool-name">&nbsp;</div>
-                <div class="flow-tool-desc">Your voice</div>
+          <div class="flow-phase">
+            <h4 class="phase-label">Phase 2: Conversation Loop</h4>
+            <div class="flow-grid">
+              <div class="flow-card">
+                <div class="flow-card-icon">🎤</div>
+                <div class="flow-card-title">You Speak</div>
+                <div class="flow-card-explanation">Talk naturally into your phone, just like you would with a human. Ask questions, give commands, or have a conversation.</div>
               </div>
-              <div class="flow-arrow">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
+              <div class="flow-card">
+                <div class="flow-card-icon">👂</div>
+                <div class="flow-card-title">We Listen</div>
+                <div class="flow-card-badge">Deepgram</div>
+                <div class="flow-card-explanation">Deepgram is an AI speech recognition service that converts your spoken words into text in real-time with remarkable accuracy, even handling accents and background noise.</div>
               </div>
-              <div class="flow-step">
-                <div class="flow-icon">👂</div>
-                <div class="flow-title">We Listen</div>
-                <div class="flow-tool-name">Deepgram</div>
-                <div class="flow-tool-desc">Speech → Text</div>
+              <div class="flow-card">
+                <div class="flow-card-icon">🧠</div>
+                <div class="flow-card-title">AI Thinks</div>
+                <div class="flow-card-badge">Groq</div>
+                <div class="flow-card-explanation">Groq provides ultra-fast AI computing that processes your question and generates an intelligent, contextual response in milliseconds - faster than any other AI infrastructure.</div>
               </div>
-              <div class="flow-arrow">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </div>
-              <div class="flow-step">
-                <div class="flow-icon">🧠</div>
-                <div class="flow-title">AI Thinks</div>
-                <div class="flow-tool-name">Groq</div>
-                <div class="flow-tool-desc">Language model</div>
-              </div>
-              <div class="flow-arrow">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14M12 5l7 7-7 7"/>
-                </svg>
-              </div>
-              <div class="flow-step">
-                <div class="flow-icon">🗣️</div>
-                <div class="flow-title">We Respond</div>
-                <div class="flow-tool-name">Cartesia</div>
-                <div class="flow-tool-desc">Text → Speech</div>
+              <div class="flow-card">
+                <div class="flow-card-icon">🗣️</div>
+                <div class="flow-card-title">We Respond</div>
+                <div class="flow-card-badge">Cartesia</div>
+                <div class="flow-card-explanation">Cartesia is AI voice synthesis that converts the text response into natural, human-sounding speech. The voice you hear is generated in real-time, not pre-recorded.</div>
               </div>
             </div>
-            <!-- Curved loop arrow -->
-            <div class="flow-loop-arrow">
-              <svg viewBox="0 0 500 60" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M450 10 Q 250 60 50 10" stroke-dasharray="4 2"/>
-                <path d="M50 10 L 55 0 M50 10 L 45 0"/>
-              </svg>
-              <span>Repeats</span>
+            <!-- Loop indicator -->
+            <div class="flow-loop-indicator">
+              <span>↻ This cycle repeats for the entire conversation</span>
             </div>
           </div>
 
-          <p class="flow-caption">All within fractions of a second</p>
+          <p class="flow-caption">Total response time: under 1 second</p>
         </div>
 
         <!-- How It's Built Section -->
