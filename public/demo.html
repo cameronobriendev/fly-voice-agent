@@ -163,6 +163,27 @@
             </div>
           </div>
         </div>
+
+        <!-- Challenges Faced -->
+        <div class="challenges-section">
+          <h3>Challenges Faced</h3>
+          <div class="challenges">
+            <div class="challenge">
+              <div class="challenge-header">
+                <strong>SDK WebSocket Bug</strong>
+                <span class="challenge-status status-resolved">Resolved</span>
+              </div>
+              <p>The Cartesia TTS SDK v2.2.9 had a critical bug where <code>websocket.send()</code> hung indefinitely in Node.js, causing 10-second timeouts and complete silence. Solution: bypassed the SDK entirely and implemented direct WebSocket connection to Cartesia's API.</p>
+            </div>
+            <div class="challenge">
+              <div class="challenge-header">
+                <strong>LLM Function Call Leakage</strong>
+                <span class="challenge-status status-progress">Fix in Progress</span>
+              </div>
+              <p>LLMs sometimes "leak" internal function call syntax into their spoken responses, saying things like "Note: customer wants..." instead of speaking naturally while silently collecting data. This is a common challenge when LLMs have both conversational and tool-calling responsibilities.</p>
+            </div>
+          </div>
+        </div>
       </div>
     </main>
 
