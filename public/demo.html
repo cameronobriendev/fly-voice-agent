@@ -19,7 +19,7 @@
       <div class="demo-card">
         <div class="demo-section">
           <h2>Try It Live</h2>
-          <p class="demo-intro">Call our demo number to experience the AI voice agent in action. It demonstrates natural conversation and can answer your questions.</p>
+          <p class="demo-intro">Call our demo number to experience the AI voice agent in action.<br>It demonstrates natural conversation and can answer your questions.</p>
 
           <button class="btn btn-primary" id="revealPhoneBtn">
             <span class="btn-text">Call Demo Number →</span>
@@ -170,6 +170,13 @@
           <div class="challenges">
             <div class="challenge">
               <div class="challenge-header">
+                <strong>TTS Request Queuing</strong>
+                <span class="challenge-status status-progress">In Progress</span>
+              </div>
+              <p>Concurrent TTS requests were hitting Cartesia's WebSocket connection limit (max 2), causing audio failures. Solution: added <code>queueSpeakText()</code> method in <code>cartesia.js</code> that processes TTS requests sequentially, preventing rate limit errors.</p>
+            </div>
+            <div class="challenge">
+              <div class="challenge-header">
                 <strong>SDK WebSocket Bug</strong>
                 <span class="challenge-status status-resolved">Resolved</span>
               </div>
@@ -178,9 +185,16 @@
             <div class="challenge">
               <div class="challenge-header">
                 <strong>LLM Function Call Leakage</strong>
-                <span class="challenge-status status-progress">Fix in Progress</span>
+                <span class="challenge-status status-resolved">Resolved</span>
               </div>
-              <p>LLMs sometimes "leak" internal function call syntax into their spoken responses, saying things like "Note: customer wants..." instead of speaking naturally while silently collecting data. This is a common challenge when LLMs have both conversational and tool-calling responsibilities.</p>
+              <p>LLMs sometimes "leak" internal function call syntax into their spoken responses, saying things like "Note: customer wants..." instead of speaking naturally while silently collecting data. Solution: explicit prompt instructions with examples of bad vs good responses.</p>
+            </div>
+            <div class="challenge">
+              <div class="challenge-header">
+                <strong>Database View Aggregation Bug</strong>
+                <span class="challenge-status status-resolved">Resolved</span>
+              </div>
+              <p>The agent was loading 1,286 Q&A entries instead of 7, causing 13-14k tokens per LLM call and growing latency (3s → 4s → 5s). Root cause: a database view was aggregating Q&As from ALL users instead of just the current user. Diagnosis came from noticing the massive token count in logs. Solution: fixed the data source to return only the user's own Q&A entries.</p>
             </div>
           </div>
         </div>

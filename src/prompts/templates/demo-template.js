@@ -1,6 +1,6 @@
 /**
  * Demo prompt template for LeadSaveAI demonstration calls
- * Used for +17753767929 (demo number)
+ * Used for demo number (set via DEMO_PHONE_NUMBER env var)
  * Uses {{VARIABLES}} that get replaced with actual user config
  * Dynamically looks up caller's industry from demo_requests table
  */

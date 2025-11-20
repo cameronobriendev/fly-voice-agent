@@ -35,6 +35,9 @@ export class DeepgramService {
         encoding: 'mulaw',
         sample_rate: 8000,
         channels: 1,
+        // Utterance boundary detection - wait for silence before marking speech complete
+        utterance_end_ms: 1000,  // 1 second of silence = end of utterance
+        endpointing: 300,        // 300ms endpoint detection threshold
       });
 
       connection.on(LiveTranscriptionEvents.Open, () => {
@@ -61,7 +64,10 @@ export class DeepgramService {
           alternatives: data.channel?.alternatives?.length || 0,
         });
 
-        if (transcript && transcript.length > 0) {
+        // Only process when we have text AND speech is truly final
+        // speechFinal indicates the user has stopped speaking (silence detected)
+        // isFinal alone just means Deepgram is confident about THIS chunk
+        if (transcript && transcript.length > 0 && speechFinal) {
           deepgramLogger.info('✅ STT FINAL TRANSCRIPT', {
             text: transcript,
             confidence: confidence?.toFixed(3) || 'N/A',
@@ -71,6 +77,13 @@ export class DeepgramService {
             speechFinal,
           });
           onTranscript(transcript);
+        } else if (transcript && transcript.length > 0 && !speechFinal) {
+          // Log partial transcripts but don't process them
+          deepgramLogger.debug('⏳ PARTIAL TRANSCRIPT (waiting for speechFinal)', {
+            text: transcript,
+            isFinal,
+            speechFinal,
+          });
         }
       });
 

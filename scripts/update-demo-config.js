@@ -4,6 +4,8 @@
 
 import { sql } from '../src/db/neon.js';
 
+const SCHEMA = process.env.DB_SCHEMA || 'public';
+
 const businessQA = {
   "How does it know what to say?": "It learns from your website and past call history so it speaks accurately for your business. Anything else you're curious about?",
   "Does it replace my staff?": "Not at all—your team answers first; we only catch missed or after-hours calls. What else would you like to know?",
@@ -19,14 +21,14 @@ async function updateDemoConfig() {
 
   try {
     // First, get the user_id for the phone number
-    const user = await sql`
+    const user = await sql(`
       SELECT user_id
-      FROM leadsaveai.users
-      WHERE twilio_phone_number = '+17753767929'
-    `;
+      FROM ${SCHEMA}.users
+      WHERE twilio_phone_number = $1
+    `, [process.env.DEMO_PHONE_NUMBER]);
 
     if (user.length === 0) {
-      console.error('❌ No user found for phone number +17753767929');
+      console.error('❌ No user found for phone number', process.env.DEMO_PHONE_NUMBER);
       process.exit(1);
     }
 
@@ -34,20 +36,20 @@ async function updateDemoConfig() {
     console.log('Found user:', userId);
 
     // Update the business_config table (where the actual data lives)
-    const result = await sql`
-      UPDATE leadsaveai.business_config
+    const result = await sql(`
+      UPDATE ${SCHEMA}.business_config
       SET
         business_name = 'LeadSaveAI',
         industry = 'ai-voice-automation',
         services_offered = '["AI receptionist"]',
-        common_faqs = ${JSON.stringify(businessQA)}
-      WHERE user_id = ${userId}
+        common_faqs = $1
+      WHERE user_id = $2
       RETURNING
         business_name,
         industry,
         services_offered,
         common_faqs
-    `;
+    `, [JSON.stringify(businessQA), userId]);
 
     if (result.length === 0) {
       console.error('❌ No rows updated - business_config not found for user');

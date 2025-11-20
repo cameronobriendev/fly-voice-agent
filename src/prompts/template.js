@@ -43,75 +43,79 @@ Once you have all the info, confirm:
 Then end politely and call the end_call_with_summary function.`;
 
 /**
- * Function definitions for the LLM
- * These allow the AI to update the service request and end the call
+ * Tool definitions for the LLM (OpenAI tools format)
+ * These allow the AI to silently update data and end calls
  */
-export const FUNCTIONS = [
+export const TOOLS = [
   {
-    name: 'update_service_request',
-    description:
-      'Update the service request with new information as you learn it during the conversation',
-    parameters: {
-      type: 'object',
-      properties: {
-        serviceType: {
-          type: 'string',
-          description: 'Type of service needed',
-        },
-        propertyType: {
-          type: 'string',
-          description: 'residential or commercial',
-        },
-        issue: {
-          type: 'string',
-          description: 'The specific problem or issue',
-        },
-        started: {
-          type: 'string',
-          description: 'When the issue started',
-        },
-        emergency: {
-          type: 'boolean',
-          description: 'Is this an emergency?',
-        },
-        contactPhone: {
-          type: 'string',
-          description: 'Best phone number to reach them',
-        },
-        callbackTime: {
-          type: 'string',
-          description: 'Best time to call back',
-        },
-        notes: {
-          type: 'string',
-          description: 'Any additional details or notes',
+    type: "function",
+    function: {
+      name: 'update_service_request',
+      description: 'Silently update the service request with new information as you learn it. Do not announce this to the caller.',
+      parameters: {
+        type: 'object',
+        properties: {
+          serviceType: {
+            type: 'string',
+            description: 'Type of service needed',
+          },
+          propertyType: {
+            type: 'string',
+            description: 'residential or commercial',
+          },
+          issue: {
+            type: 'string',
+            description: 'The specific problem or issue',
+          },
+          started: {
+            type: 'string',
+            description: 'When the issue started',
+          },
+          emergency: {
+            type: 'string',
+            description: 'Is this an emergency? Answer: yes, no, or unknown',
+          },
+          contactPhone: {
+            type: 'string',
+            description: 'Best phone number to reach them',
+          },
+          callbackTime: {
+            type: 'string',
+            description: 'Best time to call back',
+          },
+          notes: {
+            type: 'string',
+            description: 'Any additional details or notes',
+          },
         },
       },
     },
   },
   {
-    name: 'end_call_with_summary',
-    description:
-      'Call this when you have all necessary information and are ready to end the call',
-    parameters: {
-      type: 'object',
-      properties: {
-        summary: {
-          type: 'string',
-          description: 'Brief summary of the call',
+    type: "function",
+    function: {
+      name: 'end_call_with_summary',
+      description: 'Silently end the call when you have all necessary information. Do not announce this.',
+      parameters: {
+        type: 'object',
+        properties: {
+          summary: {
+            type: 'string',
+            description: 'Brief summary of the call',
+          },
+          priority: {
+            type: 'string',
+            enum: ['emergency', 'urgent', 'standard'],
+            description: 'Priority level of this request',
+          },
         },
-        priority: {
-          type: 'string',
-          enum: ['emergency', 'urgent', 'standard'],
-          description: 'Priority level of this request',
-        },
+        required: ['summary', 'priority'],
       },
-      required: ['summary', 'priority'],
     },
   },
 ];
 
 export default {
   PROMPT_TEMPLATE,
-  FUNCTIONS,
+  TOOLS,
 };

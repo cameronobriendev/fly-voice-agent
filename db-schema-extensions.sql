@@ -1,31 +1,35 @@
 -- ====================================================================
 -- Database Schema Extensions for Voice Agent System
--- For Neon Postgres (leadsaveai database)
+-- For Neon Postgres
+--
+-- NOTE: Uses 'public' schema by default. If using a custom schema,
+-- replace 'public.' with your schema name (e.g., 'myapp.')
+-- and set DB_SCHEMA environment variable to match.
 -- ====================================================================
 
 -- ====================================================================
--- Extend leadsaveai.users table with prompt customization fields
+-- Extend public.users table with prompt customization fields
 -- ====================================================================
 
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS industry VARCHAR(100);
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS service_types JSONB DEFAULT '[]'::jsonb;
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS business_qa JSONB DEFAULT '{}'::jsonb;
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS callback_window VARCHAR(100) DEFAULT 'within 2 hours';
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS notification_phone VARCHAR(20);
-ALTER TABLE leadsaveai.users ADD COLUMN IF NOT EXISTS notification_email VARCHAR(255);
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS business_name VARCHAR(255);
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS industry VARCHAR(100);
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS service_types JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS business_qa JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS callback_window VARCHAR(100) DEFAULT 'within 2 hours';
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notification_phone VARCHAR(20);
+ALTER TABLE public.users ADD COLUMN IF NOT EXISTS notification_email VARCHAR(255);
 
 -- Index for fast lookup by Twilio phone number
-CREATE INDEX IF NOT EXISTS idx_users_twilio_phone_number ON leadsaveai.users(twilio_phone_number);
+CREATE INDEX IF NOT EXISTS idx_users_twilio_phone_number ON public.users(twilio_phone_number);
 
 -- ====================================================================
--- Extend leadsaveai.calls table with recording URL
+-- Extend public.calls table with recording URL
 -- ====================================================================
 
-ALTER TABLE leadsaveai.calls ADD COLUMN IF NOT EXISTS recording_url VARCHAR(500);
+ALTER TABLE public.calls ADD COLUMN IF NOT EXISTS recording_url VARCHAR(500);
 
 -- Index for recording webhook lookup
-CREATE INDEX IF NOT EXISTS idx_calls_twilio_call_sid ON leadsaveai.calls(twilio_call_sid);
+CREATE INDEX IF NOT EXISTS idx_calls_twilio_call_sid ON public.calls(twilio_call_sid);
 
 -- ====================================================================
 -- Example: Update an existing user with prompt variables
@@ -34,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_calls_twilio_call_sid ON leadsaveai.calls(twilio_
 -- UNCOMMENT AND CUSTOMIZE THIS SECTION TO ADD YOUR DATA:
 
 /*
-UPDATE leadsaveai.users
+UPDATE public.users
 SET
   business_name = 'ABC Plumbing',
   industry = 'plumbing',
@@ -55,7 +59,7 @@ WHERE user_id = 'your-user-uuid-here';
 -- ====================================================================
 
 -- View user configuration:
--- SELECT user_id, business_name, industry, service_types, business_qa, twilio_phone_number FROM leadsaveai.users;
+-- SELECT user_id, business_name, industry, service_types, business_qa, twilio_phone_number FROM public.users;
 
 -- View calls with recordings:
--- SELECT call_id, user_id, caller_phone, duration_seconds, recording_url FROM leadsaveai.calls ORDER BY created_at DESC LIMIT 10;
+-- SELECT call_id, user_id, caller_phone, duration_seconds, recording_url FROM public.calls ORDER BY created_at DESC LIMIT 10;

@@ -14,7 +14,7 @@ const webhookLogger = logger.child('WEBHOOK');
  * @returns {Promise<Object>} Webhook response
  */
 export async function sendToWebhook(userId, callData) {
-  // Map call data to leadsaveai.calls schema
+  // Map call data to calls table schema
   const payload = {
     user_id: userId,
 

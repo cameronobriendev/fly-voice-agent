@@ -26,7 +26,68 @@ export class CartesiaService {
     this.lastActivity = Date.now();
     this.contextCounter = 0;
 
+    // TTS request queue to prevent concurrent requests hitting rate limits
+    this.ttsQueue = [];
+    this.isProcessingQueue = false;
+
     cartesiaLogger.info('Cartesia service initialized (Direct WebSocket)');
+  }
+
+  /**
+   * Add TTS request to queue and process sequentially
+   * Prevents Cartesia concurrency limit errors
+   * @param {string} text - Text to synthesize
+   * @param {Function} onAudioChunk - Callback for each audio chunk
+   * @returns {Promise<void>}
+   */
+  async queueSpeakText(text, onAudioChunk) {
+    return new Promise((resolve, reject) => {
+      // Add to queue
+      this.ttsQueue.push({
+        text,
+        onAudioChunk,
+        resolve,
+        reject,
+      });
+
+      cartesiaLogger.debug('TTS request queued', {
+        queueLength: this.ttsQueue.length,
+        textLength: text.length,
+      });
+
+      // Start processing if not already running
+      this.processQueue();
+    });
+  }
+
+  /**
+   * Process TTS queue sequentially
+   */
+  async processQueue() {
+    // If already processing, let the current processor handle the queue
+    if (this.isProcessingQueue) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
+    while (this.ttsQueue.length > 0) {
+      const request = this.ttsQueue.shift();
+
+      cartesiaLogger.debug('Processing TTS request from queue', {
+        remainingInQueue: this.ttsQueue.length,
+        textLength: request.text.length,
+      });
+
+      try {
+        await this.speakTextWithRetry(request.text, request.onAudioChunk);
+        request.resolve();
+      } catch (error) {
+        request.reject(error);
+      }
+    }
+
+    this.isProcessingQueue = false;
   }
 
   /**

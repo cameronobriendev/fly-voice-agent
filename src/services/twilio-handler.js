@@ -16,7 +16,7 @@ import { CartesiaService } from './cartesia.js';
 import { LLMRouter } from './llm-router.js';
 import { sendToWebhook } from './post-call.js';
 import { onCallStart, onCallEnd } from './metrics.js';
-import { FUNCTIONS } from '../prompts/template.js';
+import { TOOLS } from '../prompts/template.js';
 import { logger } from '../utils/logger.js';
 import fs from 'fs';
 import path from 'path';
@@ -180,7 +180,7 @@ export async function handleTwilioStream(ws) {
    * @returns {Promise<string>} Initial greeting text
    */
   async function getInitialGreeting(userConfig, callerNumber) {
-    const DEMO_PHONE_NUMBER = '+17753767929';
+    const DEMO_PHONE_NUMBER = process.env.DEMO_PHONE_NUMBER;
     const isDemoCall = userConfig.twilio_phone_number === DEMO_PHONE_NUMBER;
 
     if (isDemoCall) {
@@ -373,7 +373,7 @@ export async function handleTwilioStream(ws) {
 
       // Get LLM response with timing
       const llmStartTime = Date.now();
-      const response = await llmRouter.chat(messages, callSid, FUNCTIONS);
+      const response = await llmRouter.chat(messages, callSid, TOOLS);
       const llmEndTime = Date.now();
 
       llmCalls++;
@@ -381,46 +381,113 @@ export async function handleTwilioStream(ws) {
       totalCost += response.cost;
       primaryProvider = response.provider;
 
-      // LOG RAW LLM RESPONSE (BEFORE FUNCTION STRIPPING)
+      // LOG RAW LLM RESPONSE
       twilioLogger.debug('🤖 LLM RAW RESPONSE', {
         callSid,
         provider: response.provider,
         hasContent: !!response.content,
-        hasFunctionCall: !!response.functionCall,
+        hasToolCalls: !!(response.toolCalls && response.toolCalls.length > 0),
+        toolCallCount: response.toolCalls?.length || 0,
         contentLength: response.content?.length || 0,
         rawContent: response.content || '(no content)',
-        functionCallName: response.functionCall?.name || null,
         tokens: response.tokens,
         latency: `${response.latency}ms`,
         cost: `$${response.cost.toFixed(6)}`,
       });
 
-      // Handle function call
-      if (response.functionCall) {
-        twilioLogger.info('🔧 FUNCTION CALL DETECTED', {
+      // TWO-STAGE RESPONSE PATTERN
+      // Check for tool calls FIRST - execute silently, then get natural response
+      if (response.toolCalls && response.toolCalls.length > 0) {
+        twilioLogger.info('🔧 TOOL CALLS DETECTED', {
           callSid,
-          functionName: response.functionCall.name,
-          arguments: response.functionCall.arguments,
+          toolCount: response.toolCalls.length,
+          tools: response.toolCalls.map(tc => tc.function.name),
         });
-        await handleFunctionCall(response.functionCall);
-      }
 
-      // Handle text response with timing
-      if (response.content) {
-        // Strip function call syntax before storing and speaking
-        const cleanContent = stripFunctionCalls(response.content);
+        // Add assistant's tool call message to history
+        messages.push({
+          role: 'assistant',
+          content: null,
+          tool_calls: response.toolCalls,
+        });
 
-        // LOG FUNCTION CALL STRIPPING RESULTS
-        if (cleanContent.length !== response.content.length) {
-          const stripped = response.content.length - cleanContent.length;
-          twilioLogger.debug('✂️ STRIPPED FUNCTION CALLS FROM RESPONSE', {
+        // Execute each tool SILENTLY and collect results
+        for (const toolCall of response.toolCalls) {
+          const result = await executeToolCall(toolCall);
+
+          // Add tool result to conversation history
+          messages.push({
+            tool_call_id: toolCall.id,
+            role: 'tool',
+            name: toolCall.function.name,
+            content: JSON.stringify(result),
+          });
+
+          twilioLogger.debug('🔧 TOOL EXECUTED', {
             callSid,
-            originalLength: response.content.length,
-            cleanLength: cleanContent.length,
-            strippedChars: stripped,
-            hadFunctionSyntax: true,
+            toolName: toolCall.function.name,
+            toolCallId: toolCall.id,
+            result,
           });
         }
+
+        // SECOND API CALL - Get natural language response after tool execution
+        const followUpStartTime = Date.now();
+        const finalResponse = await llmRouter.chatWithToolResults(messages, callSid);
+        const followUpEndTime = Date.now();
+
+        // Track additional metrics
+        llmCalls++;
+        totalLatency += finalResponse.latency;
+        totalCost += finalResponse.cost;
+
+        twilioLogger.debug('🤖 FOLLOW-UP RESPONSE (after tools)', {
+          callSid,
+          hasContent: !!finalResponse.content,
+          contentLength: finalResponse.content?.length || 0,
+          latency: `${finalResponse.latency}ms`,
+        });
+
+        // Send the natural language response to TTS
+        if (finalResponse.content) {
+          // Safety sanitization - strip any leaked syntax
+          const cleanContent = stripFunctionCalls(finalResponse.content);
+
+          messages.push({
+            role: 'assistant',
+            content: cleanContent,
+          });
+
+          // LOG AI RESPONSE BEFORE TTS
+          twilioLogger.info('🤖 AI TRANSCRIPT', {
+            callSid,
+            speaker: 'ai',
+            text: cleanContent,
+            textLength: cleanContent.length,
+            timestamp: new Date().toISOString(),
+            turnNumber: Math.floor(transcript.length / 2) + 1,
+          });
+
+          const ttsStartTime = Date.now();
+          await sendAIResponse(cleanContent);
+          const ttsEndTime = Date.now();
+
+          // Log detailed latency breakdown
+          twilioLogger.info('⏱️ RESPONSE TIMING BREAKDOWN (two-stage)', {
+            callSid,
+            firstLlmLatency: `${llmEndTime - llmStartTime}ms`,
+            secondLlmLatency: `${followUpEndTime - followUpStartTime}ms`,
+            ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
+            totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
+            responseLength: cleanContent.length,
+            toolsExecuted: response.toolCalls.length,
+            provider: response.provider,
+          });
+        }
+      } else if (response.content) {
+        // No tool calls - just a regular text response
+        // Safety sanitization as fallback
+        const cleanContent = stripFunctionCalls(response.content);
 
         if (cleanContent.length > 0) {
           messages.push({
@@ -449,89 +516,60 @@ export async function handleTwilioStream(ws) {
             ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
             totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
             responseLength: cleanContent.length,
-            hadFunctionCalls: cleanContent.length !== response.content.length,
             provider: response.provider,
           });
-        } else {
-          // Function call but no text - ask user to repeat
-          const fallbackResponses = [
-            "Sorry, I didn't quite catch that. Can you say that again?",
-            "I missed that - could you repeat it?",
-            "Didn't hear you clearly. Mind saying that once more?",
-            "Can you repeat that? I didn't get it.",
-            "Sorry, what was that? Say it again for me?",
-          ];
-          const fallbackText = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
-
-          twilioLogger.info('🔁 FUNCTION-ONLY RESPONSE - ASKING FOR REPEAT', {
-            callSid,
-            fallbackText,
-            reason: 'LLM provided function call but no conversational text',
-          });
-
-          messages.push({
-            role: 'assistant',
-            content: fallbackText,
-          });
-
-          await sendAIResponse(fallbackText);
         }
-      } else if (response.functionCall) {
-        // Function call with NO content at all - ask user to repeat
-        const fallbackResponses = [
-          "Sorry, I didn't quite catch that. Can you say that again?",
-          "I missed that - could you repeat it?",
-          "Didn't hear you clearly. Mind saying that once more?",
-          "Can you repeat that? I didn't get it.",
-          "Sorry, what was that? Say it again for me?",
-        ];
-        const fallbackText = fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)];
-
-        twilioLogger.info('🔁 FUNCTION-ONLY RESPONSE - ASKING FOR REPEAT', {
-          callSid,
-          fallbackText,
-          reason: 'LLM provided function call but no content',
-        });
-
-        messages.push({
-          role: 'assistant',
-          content: fallbackText,
-        });
-
-        await sendAIResponse(fallbackText);
       }
     } catch (error) {
       twilioLogger.error('Error processing transcript', error);
+
+      // Provide user feedback on error instead of silence
+      try {
+        const errorResponse = "Sorry, I didn't catch that. Could you repeat what you said?";
+        messages.push({
+          role: 'assistant',
+          content: errorResponse,
+        });
+        await sendAIResponse(errorResponse);
+      } catch (ttsError) {
+        twilioLogger.error('Failed to send error response', ttsError);
+      }
     }
   }
 
   /**
-   * Handle function calls from LLM
+   * Execute a tool call silently and return the result
+   * @param {Object} toolCall - Tool call object from LLM
+   * @returns {Object} Result of tool execution
    */
-  async function handleFunctionCall(functionCall) {
-    const functionName = functionCall.name;
-    const args = JSON.parse(functionCall.arguments);
+  async function executeToolCall(toolCall) {
+    const functionName = toolCall.function.name;
+    const args = JSON.parse(toolCall.function.arguments);
 
-    twilioLogger.info('Function called', { function: functionName, args });
+    twilioLogger.info('Executing tool', {
+      tool: functionName,
+      toolCallId: toolCall.id,
+      args
+    });
 
     if (functionName === 'update_service_request') {
-      // Update collected data
+      // Update collected data silently
       Object.assign(collectedData, args);
       twilioLogger.debug('Service request updated', collectedData);
+      return { success: true, updated: Object.keys(args) };
     } else if (functionName === 'end_call_with_summary') {
-      // Call is ending
-      twilioLogger.info('Call ending', { summary: args.summary });
+      // Call is ending - schedule close after response is spoken
+      twilioLogger.info('Call ending', { summary: args.summary, priority: args.priority });
 
-      // Send final message
-      await sendAIResponse(
-        'Great! Someone will call you back shortly. Have a nice day!'
-      );
-
-      // Close the call
+      // Schedule call close after TTS completes
       setTimeout(() => {
         ws.close();
-      }, 3000); // Give time for final message to play
+      }, 5000); // Give time for final message to play
+
+      return { success: true, callEnding: true, summary: args.summary };
     }
+
+    return { success: false, error: 'Unknown tool' };
   }
 
   /**
@@ -565,9 +603,9 @@ export async function handleTwilioStream(ws) {
         timestamp: new Date().toISOString(),
       });
 
-      // Speak text with automatic retry if timeout occurs
+      // Queue TTS request to prevent concurrent connections hitting rate limits
       // v2.x: audioChunk is already a Buffer from cartesia.js
-      await cartesia.speakTextWithRetry(text, (audioChunk) => {
+      await cartesia.queueSpeakText(text, (audioChunk) => {
         // Convert Buffer to Base64 for Twilio
         const base64Audio = audioChunk.toString('base64');
         ws.send(
@@ -579,7 +617,7 @@ export async function handleTwilioStream(ws) {
             },
           })
         );
-      }, 1, 10000); // maxRetries=1, timeout=10000ms
+      });
     } catch (error) {
       twilioLogger.error('Error in sendAIResponse', error);
       throw error;

@@ -11,7 +11,7 @@ import { getDemoRequestByPhone } from '../db/queries.js';
 const promptLogger = logger.child('PROMPT');
 
 // Demo phone number
-const DEMO_PHONE_NUMBER = '+17753767929';
+const DEMO_PHONE_NUMBER = process.env.DEMO_PHONE_NUMBER;
 
 /**
  * Build a custom prompt from template using user configuration

@@ -6,6 +6,7 @@ import { sql } from './neon.js';
 import { logger } from '../utils/logger.js';
 
 const dbLogger = logger.child('QUERIES');
+const SCHEMA = process.env.DB_SCHEMA || 'public';
 
 /**
  * Get user configuration by Twilio phone number
@@ -16,11 +17,11 @@ export async function getUserByPhone(twilioNumber) {
   try {
     dbLogger.info('Looking up user by phone', { phone: twilioNumber });
 
-    const result = await sql`
-      SELECT * FROM leadsaveai.user_voice_config
-      WHERE twilio_phone_number = ${twilioNumber}
+    const result = await sql(`
+      SELECT * FROM ${SCHEMA}.user_voice_config
+      WHERE twilio_phone_number = $1
       LIMIT 1
-    `;
+    `, [twilioNumber]);
 
     if (result.length === 0) {
       dbLogger.warn('No user found for phone number', { phone: twilioNumber });
@@ -55,8 +56,8 @@ export async function createCall(callData) {
       callSid: callData.twilio_call_sid,
     });
 
-    const result = await sql`
-      INSERT INTO leadsaveai.calls (
+    const result = await sql(`
+      INSERT INTO ${SCHEMA}.calls (
         user_id,
         twilio_call_sid,
         caller_phone,
@@ -73,23 +74,25 @@ export async function createCall(callData) {
         notes
       )
       VALUES (
-        ${callData.user_id},
-        ${callData.twilio_call_sid},
-        ${callData.caller_phone},
-        ${callData.caller_name || null},
-        ${callData.caller_email || null},
-        ${callData.call_started_at},
-        ${callData.call_ended_at || null},
-        ${callData.duration_seconds || 0},
-        ${callData.issue_description || null},
-        ${callData.urgency_level || 'medium'},
-        ${callData.transcript || ''},
-        ${callData.ai_confidence_score || 0},
-        ${callData.status || 'new'},
-        ${callData.notes || ''}
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
       )
       RETURNING *
-    `;
+    `, [
+      callData.user_id,
+      callData.twilio_call_sid,
+      callData.caller_phone,
+      callData.caller_name || null,
+      callData.caller_email || null,
+      callData.call_started_at,
+      callData.call_ended_at || null,
+      callData.duration_seconds || 0,
+      callData.issue_description || null,
+      callData.urgency_level || 'medium',
+      callData.transcript || '',
+      callData.ai_confidence_score || 0,
+      callData.status || 'new',
+      callData.notes || ''
+    ]);
 
     dbLogger.info('Call record created', {
       callId: result[0].call_id,
@@ -114,12 +117,12 @@ export async function updateRecordingUrl(twilioCallSid, recordingUrl) {
   try {
     dbLogger.info('Updating recording URL', { callSid: twilioCallSid });
 
-    const result = await sql`
-      UPDATE leadsaveai.calls
-      SET recording_url = ${recordingUrl}
-      WHERE twilio_call_sid = ${twilioCallSid}
+    const result = await sql(`
+      UPDATE ${SCHEMA}.calls
+      SET recording_url = $1
+      WHERE twilio_call_sid = $2
       RETURNING *
-    `;
+    `, [recordingUrl, twilioCallSid]);
 
     if (result.length === 0) {
       dbLogger.warn('No call found for recording update', {
@@ -150,13 +153,13 @@ export async function getDemoRequestByPhone(phoneNumber) {
   try {
     dbLogger.info('Looking up demo request by phone', { phone: phoneNumber });
 
-    const result = await sql`
+    const result = await sql(`
       SELECT industry_slug, requested_at
-      FROM leadsaveai.demo_requests
-      WHERE phone_number = ${phoneNumber}
+      FROM ${SCHEMA}.demo_requests
+      WHERE phone_number = $1
       ORDER BY requested_at DESC
       LIMIT 1
-    `;
+    `, [phoneNumber]);
 
     if (result.length === 0) {
       dbLogger.info('No demo request found for phone number', { phone: phoneNumber });

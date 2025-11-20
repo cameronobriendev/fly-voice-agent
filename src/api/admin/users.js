@@ -8,6 +8,7 @@ import { logger } from '../../utils/logger.js';
 import { buildPrompt, insertPhoneNumber } from '../../services/prompt-builder.js';
 
 const usersLogger = logger.child('ADMIN_USERS');
+const SCHEMA = process.env.DB_SCHEMA || 'public';
 
 /**
  * GET /api/admin/users
@@ -15,7 +16,7 @@ const usersLogger = logger.child('ADMIN_USERS');
  */
 export async function getUsers(req, res) {
   try {
-    const users = await sql`
+    const users = await sql(`
       SELECT
         user_id,
         twilio_phone_number,
@@ -27,10 +28,10 @@ export async function getUsers(req, res) {
         notification_phone,
         notification_email,
         created_at
-      FROM leadsaveai.user_voice_config
+      FROM ${SCHEMA}.user_voice_config
       WHERE twilio_phone_number IS NOT NULL
       ORDER BY created_at DESC
-    `;
+    `);
 
     usersLogger.info('Users retrieved', { count: users.length });
 
@@ -49,7 +50,7 @@ export async function getUser(req, res) {
   try {
     const { userId } = req.params;
 
-    const users = await sql`
+    const users = await sql(`
       SELECT
         user_id,
         twilio_phone_number,
@@ -61,9 +62,9 @@ export async function getUser(req, res) {
         notification_phone,
         notification_email,
         created_at
-      FROM leadsaveai.user_voice_config
-      WHERE user_id = ${userId}
-    `;
+      FROM ${SCHEMA}.user_voice_config
+      WHERE user_id = $1
+    `, [userId]);
 
     if (users.length === 0) {
       return res.status(404).json({ error: 'User not found' });
@@ -110,16 +111,13 @@ export async function updateUser(req, res) {
     }
 
     // Upsert business_config table (source of truth)
-    const result = await sql`
-      INSERT INTO leadsaveai.business_config (
+    const result = await sql(`
+      INSERT INTO ${SCHEMA}.business_config (
         user_id, business_name, industry, services_offered,
         common_faqs, special_instructions, updated_at
       )
       VALUES (
-        ${userId}, ${business_name}, ${industry},
-        ${JSON.stringify(service_types || [])},
-        ${JSON.stringify(business_qa || {})},
-        ${callback_window || 'soon'}, NOW()
+        $1, $2, $3, $4, $5, $6, NOW()
       )
       ON CONFLICT (user_id)
       DO UPDATE SET
@@ -130,7 +128,14 @@ export async function updateUser(req, res) {
         special_instructions = EXCLUDED.special_instructions,
         updated_at = NOW()
       RETURNING *
-    `;
+    `, [
+      userId,
+      business_name,
+      industry,
+      JSON.stringify(service_types || []),
+      JSON.stringify(business_qa || {}),
+      callback_window || 'soon'
+    ]);
 
     if (result.length === 0) {
       return res.status(500).json({ error: 'Failed to save configuration' });
@@ -138,21 +143,21 @@ export async function updateUser(req, res) {
 
     // Handle notification contacts (phone and email)
     if (notification_phone) {
-      await sql`
-        INSERT INTO leadsaveai.notification_contacts (user_id, contact_type, contact_value, is_primary)
-        VALUES (${userId}, 'phone', ${notification_phone}, true)
+      await sql(`
+        INSERT INTO ${SCHEMA}.notification_contacts (user_id, contact_type, contact_value, is_primary)
+        VALUES ($1, 'phone', $2, true)
         ON CONFLICT (user_id, contact_type, contact_value)
         DO UPDATE SET is_primary = true, updated_at = NOW()
-      `;
+      `, [userId, notification_phone]);
     }
 
     if (notification_email) {
-      await sql`
-        INSERT INTO leadsaveai.notification_contacts (user_id, contact_type, contact_value, is_primary)
-        VALUES (${userId}, 'email', ${notification_email}, true)
+      await sql(`
+        INSERT INTO ${SCHEMA}.notification_contacts (user_id, contact_type, contact_value, is_primary)
+        VALUES ($1, 'email', $2, true)
         ON CONFLICT (user_id, contact_type, contact_value)
         DO UPDATE SET is_primary = true, updated_at = NOW()
-      `;
+      `, [userId, notification_email]);
     }
 
     usersLogger.info('User updated', { userId, business_name });
@@ -174,7 +179,7 @@ export async function previewPrompt(req, res) {
     const { templateType = 'client' } = req.query; // 'demo' or 'client'
 
     // Get user config
-    const users = await sql`
+    const users = await sql(`
       SELECT
         twilio_phone_number,
         business_name,
@@ -182,9 +187,9 @@ export async function previewPrompt(req, res) {
         service_types,
         business_qa,
         callback_window
-      FROM leadsaveai.user_voice_config
-      WHERE user_id = ${userId}
-    `;
+      FROM ${SCHEMA}.user_voice_config
+      WHERE user_id = $1
+    `, [userId]);
 
     if (users.length === 0) {
       return res.status(404).json({ error: 'User not found' });

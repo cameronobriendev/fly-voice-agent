@@ -1,6 +1,6 @@
 /**
  * Demo fallback prompt template for LeadSaveAI demonstration calls
- * Used for +17753767929 (demo number) when caller is NOT in demo_requests table
+ * Used for demo number (DEMO_PHONE_NUMBER env var) when caller is NOT in demo_requests table
  * No industry data available - generic demo without industry personalization
  */
 

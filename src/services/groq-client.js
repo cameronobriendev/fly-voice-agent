@@ -24,10 +24,10 @@ export class GroqClient {
   /**
    * Send a chat completion request
    * @param {Array} messages - Array of message objects {role, content}
-   * @param {Array} functions - Optional function definitions
-   * @returns {Promise<Object>} Response object with content, functionCall, usage
+   * @param {Array} tools - Optional tool definitions (OpenAI tools format)
+   * @returns {Promise<Object>} Response object with content, toolCalls, usage
    */
-  async chat(messages, functions = null) {
+  async chat(messages, tools = null) {
     try {
       const params = {
         model: 'llama-3.3-70b-versatile',
@@ -36,33 +36,78 @@ export class GroqClient {
         max_tokens: 150,
       };
 
-      if (functions) {
-        params.functions = functions;
-        params.function_call = 'auto';
+      if (tools) {
+        params.tools = tools;
+        params.tool_choice = 'auto';
       }
 
       groqLogger.debug('Sending request to Groq', {
         messageCount: messages.length,
-        hasFunctions: !!functions,
+        hasTools: !!tools,
       });
 
       const response = await this.client.chat.completions.create(params);
+      const message = response.choices[0].message;
 
       const result = {
-        content: response.choices[0].message.content,
-        functionCall: response.choices[0].message.function_call || null,
+        content: message.content,
+        toolCalls: message.tool_calls || null,
+        finishReason: response.choices[0].finish_reason,
         usage: response.usage,
+        rawMessage: message,
       };
 
       groqLogger.debug('Groq response received', {
         hasContent: !!result.content,
-        hasFunctionCall: !!result.functionCall,
+        hasToolCalls: !!(result.toolCalls && result.toolCalls.length > 0),
+        toolCallCount: result.toolCalls?.length || 0,
+        finishReason: result.finishReason,
         tokens: result.usage.total_tokens,
       });
 
       return result;
     } catch (error) {
       groqLogger.error('Groq API error', error, {
+        errorCode: error.code,
+        errorStatus: error.status,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Send follow-up chat after tool execution
+   * @param {Array} messages - Messages including tool results
+   * @returns {Promise<Object>} Response with natural language content
+   */
+  async chatWithToolResults(messages) {
+    try {
+      groqLogger.debug('Sending follow-up request with tool results', {
+        messageCount: messages.length,
+      });
+
+      const response = await this.client.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: messages,
+        temperature: 0.7,
+        max_tokens: 150,
+        // No tools - just get natural response
+      });
+
+      const result = {
+        content: response.choices[0].message.content,
+        usage: response.usage,
+      };
+
+      groqLogger.debug('Groq follow-up response received', {
+        hasContent: !!result.content,
+        contentLength: result.content?.length || 0,
+        tokens: result.usage.total_tokens,
+      });
+
+      return result;
+    } catch (error) {
+      groqLogger.error('Groq follow-up API error', error, {
         errorCode: error.code,
         errorStatus: error.status,
       });
