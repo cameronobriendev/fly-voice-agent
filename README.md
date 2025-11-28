@@ -339,10 +339,16 @@ Edit `src/prompts/` to customize AI agent personality:
 
 ## Performance
 
-- **Latency**: <200ms end-to-end (audio in → audio out)
+- **Response Latency**: ~600-800ms (user stops speaking → AI audio starts)
 - **Auto-Scaling**: 0→1 in <5 seconds
 - **Concurrent Calls**: Unlimited (scales horizontally)
 - **Uptime**: 99.9% (Fly.io SLA)
+
+**Latency Breakdown** (measured in production):
+- Speech-to-Text (Deepgram): ~50-100ms
+- LLM Inference (Groq): ~400-500ms
+- Text-to-Speech TTFB (Cartesia): ~100-300ms
+- Network overhead: ~50-100ms
 
 ## Security
 
