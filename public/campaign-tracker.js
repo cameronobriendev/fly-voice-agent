@@ -45,7 +45,7 @@
                 body: JSON.stringify({
                     client: campaignClient,
                     session: campaignSession,
-                    page: window.location.pathname,
+                    page: window.location.hostname + window.location.pathname,
                     timestamp: new Date().toISOString()
                 })
             }).then(function() {
@@ -59,7 +59,7 @@
                 window.umami.track('campaign-pageview', {
                     client: campaignClient,
                     session: campaignSession,
-                    page: window.location.pathname
+                    page: window.location.hostname + window.location.pathname
                 });
             }
         }
