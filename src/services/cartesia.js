@@ -20,7 +20,7 @@ export class CartesiaService {
     }
 
     this.apiKey = process.env.CARTESIA_API_KEY;
-    this.defaultVoiceId = 'a0e99841-438c-4a64-b679-ae501e7d6091'; // Barbershop Man
+    this.defaultVoiceId = 'a167e0f3-df7e-4d52-a9c3-f949145efdab'; // Custom voice
     this.currentVoiceId = null;
     this.websocket = null;
     this.lastActivity = Date.now();

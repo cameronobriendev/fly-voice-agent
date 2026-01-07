@@ -14,3 +14,4 @@ build/
 # Ignore all markdown except README
 *.md
 !README.md
+.vercel
