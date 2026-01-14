@@ -28,6 +28,7 @@ export async function getUserByPhone(twilioNumber) {
         bc.services_offered AS service_types,
         bc.common_faqs AS business_qa,
         bc.ai_voice_id,
+        bc.service_area,
         bc.client_greeting,
         bc.demo_greeting,
         bc.demo_fallback_greeting

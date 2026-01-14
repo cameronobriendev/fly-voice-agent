@@ -10,8 +10,29 @@ import { getDemoRequestByPhone } from '../db/queries.js';
 
 const promptLogger = logger.child('PROMPT');
 
-// Demo phone number
-const DEMO_PHONE_NUMBER = process.env.DEMO_PHONE_NUMBER;
+// Demo phone numbers (comma-separated for multiple demo lines)
+const DEMO_PHONE_NUMBERS = (process.env.DEMO_PHONE_NUMBERS || process.env.DEMO_PHONE_NUMBER || '')
+  .split(',')
+  .map(n => n.trim())
+  .filter(n => n);
+
+/**
+ * Check if a phone number is a demo line
+ */
+export function isDemoNumber(phoneNumber) {
+  return DEMO_PHONE_NUMBERS.includes(phoneNumber);
+}
+
+/**
+ * Derive assistant name from business name
+ * BuddyHelps -> Buddy, BennyHelps -> Benny, etc.
+ */
+function getAssistantName(businessName) {
+  if (!businessName) return 'the assistant';
+  // Remove "Helps" suffix if present
+  const name = businessName.replace(/Helps$/i, '').trim();
+  return name || 'the assistant';
+}
 
 /**
  * Build a custom prompt from template using user configuration
@@ -23,7 +44,7 @@ const DEMO_PHONE_NUMBER = process.env.DEMO_PHONE_NUMBER;
 export async function buildPrompt(userConfig, templateType = null, callerNumber = null) {
   // Auto-detect template type if not specified
   if (!templateType) {
-    templateType = userConfig.twilio_phone_number === DEMO_PHONE_NUMBER ? 'demo' : 'client';
+    templateType = isDemoNumber(userConfig.twilio_phone_number) ? 'demo' : 'client';
   }
 
   // Select appropriate template
@@ -34,6 +55,16 @@ export async function buildPrompt(userConfig, templateType = null, callerNumber 
     /{{BUSINESS_NAME}}/g,
     userConfig.business_name || 'our company'
   );
+
+  // Replace assistant name (derived from business name: BuddyHelps -> Buddy)
+  const assistantName = getAssistantName(userConfig.business_name);
+  prompt = prompt.replace(/{{ASSISTANT_NAME}}/g, assistantName);
+
+  // Replace service name (the full business name for branding)
+  prompt = prompt.replace(/{{SERVICE_NAME}}/g, userConfig.business_name || 'our service');
+
+  // Replace service area (geographic region served)
+  prompt = prompt.replace(/{{SERVICE_AREA}}/g, userConfig.service_area || 'the area');
 
   // Replace industry - for demo calls, look up from database
   let industry = userConfig.industry || 'service';

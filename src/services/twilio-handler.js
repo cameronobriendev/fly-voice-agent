@@ -10,7 +10,7 @@
  */
 
 import { getUserByPhone, getDemoRequestByPhone } from '../db/queries.js';
-import { buildPrompt, insertPhoneNumber, substituteVariables } from './prompt-builder.js';
+import { buildPrompt, insertPhoneNumber, substituteVariables, isDemoNumber } from './prompt-builder.js';
 import { DeepgramService } from './deepgram.js';
 import { CartesiaService } from './cartesia.js';
 import { LLMRouter } from './llm-router.js';
@@ -59,6 +59,10 @@ export async function handleTwilioStream(ws) {
   // Conversation state
   const messages = []; // LLM conversation history
   const transcript = []; // Full conversation transcript
+
+  // Half-duplex state: block user audio while AI is speaking
+  let isSpeaking = false;
+
   const collectedData = {
     // Data collected during call
     serviceType: null,
@@ -180,8 +184,7 @@ export async function handleTwilioStream(ws) {
    * @returns {Promise<string>} Initial greeting text
    */
   async function getInitialGreeting(userConfig, callerNumber) {
-    const DEMO_PHONE_NUMBER = process.env.DEMO_PHONE_NUMBER;
-    const isDemoCall = userConfig.twilio_phone_number === DEMO_PHONE_NUMBER;
+    const isDemoCall = isDemoNumber(userConfig.twilio_phone_number);
 
     if (isDemoCall) {
       // Check if caller has demo request (for industry lookup)
@@ -234,12 +237,18 @@ export async function handleTwilioStream(ws) {
    * Initialize services and user config
    * NEW FLOW: Plays ringback FIRST, initializes Deepgram during ringback,
    * then connects Cartesia AFTER ringback completes (prevents WebSocket idle timeout)
+   * HALF-DUPLEX: Blocks user audio during entire init phase (ringback + greeting)
    */
   async function initialize(twilioNumber, callerNumber) {
+    // HALF-DUPLEX: Block user audio during entire initialization
+    // This protects ringback + greeting from interruptions
+    // sendAIResponse will reset this after greeting completes
+    isSpeaking = true;
+
     try {
       const initStartTime = Date.now();
 
-      twilioLogger.info('Starting initialization with ringback', {
+      twilioLogger.info('Starting initialization with ringback (audio blocked)', {
         callSid,
         twilioNumber,
         callerNumber,
@@ -317,13 +326,33 @@ export async function handleTwilioStream(ws) {
         totalInitTime: `${cartesiaConnectedTime - initStartTime}ms`,
       });
 
-      // STEP 5: Immediately send greeting (no idle time!)
-      const greeting = await getInitialGreeting(userConfig, callerNumber);
+      // STEP 5: Generate greeting via LLM (so it has full context)
+      twilioLogger.info('Generating greeting via LLM', { callSid });
+
+      const greetingResponse = await llmRouter.chat(messages, callSid, null);
+      const greeting = stripFunctionCalls(greetingResponse.content || '');
+
+      // Add greeting to conversation history so LLM has context
+      messages.push({
+        role: 'assistant',
+        content: greeting,
+      });
+
+      // Add to transcript
+      transcript.push({
+        turn: 1,
+        speaker: 'ai',
+        text: greeting,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Send to TTS
       await sendAIResponse(greeting);
 
       twilioLogger.info('✅ Call initialization complete', {
         callSid,
         totalTime: `${Date.now() - initStartTime}ms`,
+        greetingLength: greeting.length,
       });
     } catch (error) {
       twilioLogger.error('Failed to initialize call', error);
@@ -342,9 +371,20 @@ export async function handleTwilioStream(ws) {
 
   /**
    * Handle transcript from Deepgram
+   * HALF-DUPLEX: Discards transcripts received while AI is speaking
    */
   async function onTranscript(transcriptText) {
     const transcriptReceivedAt = Date.now();
+
+    // HALF-DUPLEX: Discard any transcripts that arrive while AI is speaking
+    // This catches edge cases where audio was already in Deepgram's pipeline
+    if (isSpeaking) {
+      twilioLogger.debug('🔇 HALF-DUPLEX: Discarding transcript (AI still speaking)', {
+        callSid,
+        discardedText: transcriptText,
+      });
+      return;
+    }
 
     try {
       // LOG TRANSCRIPT ENTRY (VERBOSE)
@@ -373,7 +413,7 @@ export async function handleTwilioStream(ws) {
 
       // Get LLM response with timing
       // Demo calls don't use tools (faster response, no data capture needed)
-      const isDemoCall = userConfig.twilio_phone_number === process.env.DEMO_PHONE_NUMBER;
+      const isDemoCall = isDemoNumber(userConfig.twilio_phone_number);
       const llmStartTime = Date.now();
       const response = await llmRouter.chat(messages, callSid, isDemoCall ? null : TOOLS);
       const llmEndTime = Date.now();
@@ -577,8 +617,13 @@ export async function handleTwilioStream(ws) {
   /**
    * Send AI response via TTS (WebSocket streaming with automatic retry)
    * v2.x: Includes idle connection refresh check
+   * HALF-DUPLEX: Sets isSpeaking flag to block user audio during playback
    */
   async function sendAIResponse(text) {
+    // HALF-DUPLEX: Block user audio while AI is speaking
+    isSpeaking = true;
+    twilioLogger.debug('🔇 HALF-DUPLEX: Blocking user audio (AI speaking)', { callSid });
+
     try {
       // Check if connection needs refresh (5-min idle timeout)
       if (cartesia.needsRefresh()) {
@@ -623,6 +668,10 @@ export async function handleTwilioStream(ws) {
     } catch (error) {
       twilioLogger.error('Error in sendAIResponse', error);
       throw error;
+    } finally {
+      // HALF-DUPLEX: Resume listening after TTS completes (or fails)
+      isSpeaking = false;
+      twilioLogger.debug('🔊 HALF-DUPLEX: Resuming user audio (AI finished)', { callSid });
     }
   }
 
@@ -729,11 +778,13 @@ export async function handleTwilioStream(ws) {
 
         await initialize(toNumber, fromNumber);
       } else if (msg.event === 'media') {
-        // Forward audio to Deepgram
-        if (deepgramConnection && msg.media?.payload) {
+        // HALF-DUPLEX: Only forward audio to Deepgram when AI is NOT speaking
+        // This prevents interruptions and echo from being processed as user speech
+        if (!isSpeaking && deepgramConnection && msg.media?.payload) {
           const audioBuffer = Buffer.from(msg.media.payload, 'base64');
           deepgram.sendAudio(deepgramConnection, audioBuffer);
         }
+        // Audio received while AI speaking is intentionally discarded
       } else if (msg.event === 'stop') {
         twilioLogger.info('Call stopped', { callSid });
 
