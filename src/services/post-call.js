@@ -1,6 +1,6 @@
 /**
  * Post-call webhook service
- * Sends call data to your existing webhook endpoint
+ * Sends call data to BuddyHelps Dashboard
  */
 
 import { logger } from '../utils/logger.js';
@@ -8,54 +8,47 @@ import { logger } from '../utils/logger.js';
 const webhookLogger = logger.child('WEBHOOK');
 
 /**
- * Send call data to webhook endpoint
- * @param {string} userId - User ID
- * @param {Object} callData - Complete call data
+ * Send call data to BuddyHelps Dashboard
+ * @param {string} userId - User ID (unused for BuddyHelps)
+ * @param {Object} callData - Complete call data including userConfig
  * @returns {Promise<Object>} Webhook response
  */
 export async function sendToWebhook(userId, callData) {
-  // Map call data to calls table schema
+  const { userConfig, collectedData } = callData;
+
+  // Map to BuddyHelps Dashboard format
   const payload = {
-    user_id: userId,
-
-    // Twilio identifiers
-    twilio_call_sid: callData.callSid,
-
     // Caller info
-    caller_phone: callData.fromNumber, // E.164 format
-    caller_name: callData.collectedData.callerName || null,
-    caller_email: callData.collectedData.callerEmail || null,
-
-    // Timing
-    call_started_at: callData.startedAt, // ISO 8601 timestamp
-    call_ended_at: callData.endedAt, // ISO 8601 timestamp
-    duration_seconds: callData.duration,
+    caller_phone: callData.fromNumber,
+    caller_name: collectedData.callerName || null,
+    caller_address: collectedData.address || null,
+    callback_number: collectedData.contactPhone || callData.fromNumber,
 
     // Issue details
-    issue_description: callData.collectedData.issue || null,
-    urgency_level: mapUrgencyLevel(callData.collectedData.emergency),
+    problem: collectedData.issue || null,
+    urgency: mapUrgencyLevel(collectedData.emergency),
 
     // Call content
     transcript: formatTranscript(callData.transcript),
 
-    // Metadata
-    ai_confidence_score: calculateConfidenceScore(callData.collectedData),
-    status: 'new',
-    notes: buildNotes(callData),
+    // Business config (from dashboard API)
+    business_name: userConfig?.business_name || null,
+    plumber_phone: userConfig?.plumber_phone || null,
+    plumber_email: userConfig?.plumber_email || null,
+    twilio_number: callData.toNumber,
   };
 
   try {
-    webhookLogger.info('Sending call data to webhook', {
-      userId,
+    webhookLogger.info('Sending call data to BuddyHelps Dashboard', {
       callSid: callData.callSid,
       webhookUrl: process.env.WEBHOOK_URL,
+      businessName: payload.business_name,
     });
 
     const response = await fetch(process.env.WEBHOOK_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.WEBHOOK_SECRET}`,
       },
       body: JSON.stringify(payload),
       signal: AbortSignal.timeout(30000), // 30 second timeout
@@ -68,19 +61,19 @@ export async function sendToWebhook(userId, callData) {
 
     const result = await response.json();
 
-    webhookLogger.info('Call data sent successfully', {
-      callId: result.call_id,
+    webhookLogger.info('Call data sent to dashboard successfully', {
+      callId: result.callId,
+      detailsUrl: result.detailsUrl,
       callSid: callData.callSid,
     });
 
     return result;
   } catch (error) {
-    webhookLogger.error('Failed to send to webhook', error, {
+    webhookLogger.error('Failed to send to dashboard', error, {
       callSid: callData.callSid,
     });
 
     // IMPORTANT: Don't throw - call still succeeded even if webhook failed
-    // The voice agent's job is done, webhook failure shouldn't stop us
     return { error: error.message };
   }
 }
@@ -110,58 +103,6 @@ function formatTranscript(transcript) {
       return `${speaker}: ${t.text}`;
     })
     .join('\n');
-}
-
-/**
- * Calculate confidence score based on collected data
- * @param {Object} collectedData - Data collected during call
- * @returns {number} Confidence score (0-100)
- */
-function calculateConfidenceScore(collectedData) {
-  let score = 0;
-  const fields = [
-    'serviceType',
-    'propertyType',
-    'issue',
-    'started',
-    'contactPhone',
-    'callbackTime',
-  ];
-
-  fields.forEach((field) => {
-    if (
-      collectedData[field] &&
-      String(collectedData[field]).trim().length > 0
-    ) {
-      score += 16.67; // Each field is worth ~17% (100/6)
-    }
-  });
-
-  return Math.round(score);
-}
-
-/**
- * Build notes from collected data
- * @param {Object} callData - Complete call data
- * @returns {string} Notes text
- */
-function buildNotes(callData) {
-  const cd = callData.collectedData;
-  const notes = [];
-
-  if (cd.serviceType) notes.push(`Service: ${cd.serviceType}`);
-  if (cd.propertyType) notes.push(`Property: ${cd.propertyType}`);
-  if (cd.started) notes.push(`Started: ${cd.started}`);
-  if (cd.callbackTime) notes.push(`Callback: ${cd.callbackTime}`);
-  if (cd.notes) notes.push(`Additional: ${cd.notes}`);
-
-  // Add call metrics
-  notes.push(`\nCall Metrics:`);
-  notes.push(`- LLM Provider: ${callData.llmProvider}`);
-  notes.push(`- Avg Latency: ${callData.avgLatency}ms`);
-  notes.push(`- Cost: $${callData.totalCost.toFixed(4)}`);
-
-  return notes.join('\n');
 }
 
 export default {

@@ -42,9 +42,23 @@ function getAssistantName(businessName) {
  * @returns {Promise<string>} Customized prompt
  */
 export async function buildPrompt(userConfig, templateType = null, callerNumber = null) {
+  // If custom system_prompt is provided, use it directly (with variable substitution)
+  if (userConfig.system_prompt) {
+    promptLogger.info('Using custom system prompt from config', {
+      businessName: userConfig.business_name,
+      promptLength: userConfig.system_prompt.length,
+    });
+    let prompt = userConfig.system_prompt;
+    // Still do variable substitution on custom prompts
+    prompt = prompt.replace(/{{BUSINESS_NAME}}/g, userConfig.business_name || 'our company');
+    prompt = prompt.replace(/{{GREETING_NAME}}/g, userConfig.greeting_name || 'the assistant');
+    prompt = prompt.replace(/{{INDUSTRY}}/g, userConfig.industry || 'service');
+    return prompt;
+  }
+
   // Auto-detect template type if not specified
   if (!templateType) {
-    templateType = isDemoNumber(userConfig.twilio_phone_number) ? 'demo' : 'client';
+    templateType = userConfig.is_demo ? 'demo' : 'client';
   }
 
   // Select appropriate template

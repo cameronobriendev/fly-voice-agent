@@ -9,8 +9,8 @@
  * 6. Send to webhook when call ends
  */
 
-import { getUserByPhone, getDemoRequestByPhone } from '../db/queries.js';
-import { buildPrompt, insertPhoneNumber, substituteVariables, isDemoNumber } from './prompt-builder.js';
+import { getConfigFromDashboard } from './config-api.js';
+import { buildPrompt, insertPhoneNumber } from './prompt-builder.js';
 import { DeepgramService } from './deepgram.js';
 import { CartesiaService } from './cartesia.js';
 import { LLMRouter } from './llm-router.js';
@@ -178,62 +178,6 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
-   * Get initial greeting based on call type and demo request lookup
-   * @param {Object} userConfig - User configuration from database
-   * @param {string} callerNumber - Caller's phone number
-   * @returns {Promise<string>} Initial greeting text
-   */
-  async function getInitialGreeting(userConfig, callerNumber) {
-    const isDemoCall = isDemoNumber(userConfig.twilio_phone_number);
-
-    if (isDemoCall) {
-      // Check if caller has demo request (for industry lookup)
-      const demoRequest = await getDemoRequestByPhone(callerNumber);
-
-      if (demoRequest && demoRequest.industry_slug) {
-        // Caller has industry - use demo greeting
-        if (userConfig.demo_greeting) {
-          twilioLogger.info('Using custom demo greeting (with industry)', {
-            callSid,
-            callerNumber,
-            industry: demoRequest.industry_slug
-          });
-          return substituteVariables(userConfig.demo_greeting, userConfig);
-        }
-      } else {
-        // Caller has no industry - use demo fallback greeting
-        if (userConfig.demo_fallback_greeting) {
-          twilioLogger.info('Using custom demo fallback greeting (no industry)', {
-            callSid,
-            callerNumber
-          });
-          return substituteVariables(userConfig.demo_fallback_greeting, userConfig);
-        }
-      }
-
-      // Ultimate fallback for demo calls
-      twilioLogger.info('Using default demo greeting', { callSid, callerNumber });
-      return substituteVariables(
-        `Thanks for calling our {{BUSINESS_NAME}} demo! How can I help you today?`,
-        userConfig
-      );
-    } else {
-      // Client call - use client greeting
-      if (userConfig.client_greeting) {
-        twilioLogger.info('Using custom client greeting', { callSid });
-        return substituteVariables(userConfig.client_greeting, userConfig);
-      }
-
-      // Fallback for client calls
-      twilioLogger.info('Using default client greeting', { callSid });
-      return substituteVariables(
-        `Hi! Thanks for calling {{BUSINESS_NAME}}. How can I help you today?`,
-        userConfig
-      );
-    }
-  }
-
-  /**
    * Initialize services and user config
    * NEW FLOW: Plays ringback FIRST, initializes Deepgram during ringback,
    * then connects Cartesia AFTER ringback completes (prevents WebSocket idle timeout)
@@ -261,9 +205,9 @@ export async function handleTwilioStream(ws) {
       // (Deepgram can handle idle time, Cartesia cannot)
       twilioLogger.info('Initializing database and Deepgram while ringback plays', { callSid });
 
-      // Fetch user configuration from database
-      userConfig = await getUserByPhone(twilioNumber);
-      userId = userConfig.user_id;
+      // Fetch user configuration from BuddyHelps Dashboard API
+      userConfig = await getConfigFromDashboard(twilioNumber);
+      userId = userConfig.user_id; // Will be null for BuddyHelps
 
       twilioLogger.info('User configuration loaded', {
         userId,
@@ -370,6 +314,63 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
+   * Correct commonly misheard plumbing terms from STT
+   * Phone audio quality causes words like "clogged" to be heard as "quogged", "quarked", etc.
+   */
+  function correctPlumbingTerms(text) {
+    // Map of misheard words → correct word (case-insensitive)
+    const corrections = {
+      // "clogged" mishearings
+      'quogged': 'clogged',
+      'quarked': 'clogged',
+      'corked': 'clogged',
+      'clocked': 'clogged',
+      'cloged': 'clogged',
+      'clagged': 'clogged',
+      'cogged': 'clogged',
+      'quoged': 'clogged',
+      'clogt': 'clogged',
+      // "leak" mishearings
+      'leek': 'leak',
+      'leke': 'leak',
+      // "drain" mishearings
+      'drane': 'drain',
+      'drayne': 'drain',
+      // "faucet" mishearings
+      'fossit': 'faucet',
+      'fausit': 'faucet',
+      'fosset': 'faucet',
+      // "toilet" mishearings
+      'toylet': 'toilet',
+      'tolet': 'toilet',
+      // "plumber" mishearings
+      'plumer': 'plumber',
+      'plummer': 'plumber',
+    };
+
+    let corrected = text;
+    let madeCorrections = false;
+
+    for (const [wrong, right] of Object.entries(corrections)) {
+      const regex = new RegExp(`\\b${wrong}\\b`, 'gi');
+      if (regex.test(corrected)) {
+        corrected = corrected.replace(regex, right);
+        madeCorrections = true;
+      }
+    }
+
+    if (madeCorrections) {
+      twilioLogger.info('🔧 STT CORRECTION APPLIED', {
+        callSid,
+        original: text,
+        corrected: corrected,
+      });
+    }
+
+    return corrected;
+  }
+
+  /**
    * Handle transcript from Deepgram
    * HALF-DUPLEX: Discards transcripts received while AI is speaking
    */
@@ -386,34 +387,37 @@ export async function handleTwilioStream(ws) {
       return;
     }
 
+    // Correct commonly misheard plumbing terms
+    const correctedText = correctPlumbingTerms(transcriptText);
+
     try {
       // LOG TRANSCRIPT ENTRY (VERBOSE)
       twilioLogger.info('📞 USER TRANSCRIPT', {
         callSid,
         speaker: 'user',
-        text: transcriptText,
-        textLength: transcriptText.length,
+        text: correctedText,
+        textLength: correctedText.length,
         timestamp: new Date().toISOString(),
         turnNumber: Math.floor(transcript.length / 2) + 1,
       });
 
-      // Add to transcript
+      // Add to transcript (use corrected text)
       const transcriptEntry = {
         speaker: 'user',
-        text: transcriptText,
+        text: correctedText,
         timestamp: new Date().toISOString(),
       };
       transcript.push(transcriptEntry);
 
-      // Add to conversation history
+      // Add to conversation history (use corrected text for LLM)
       messages.push({
         role: 'user',
-        content: transcriptText,
+        content: correctedText,
       });
 
       // Get LLM response with timing
       // Demo calls don't use tools (faster response, no data capture needed)
-      const isDemoCall = isDemoNumber(userConfig.twilio_phone_number);
+      const isDemoCall = userConfig.is_demo;
       const llmStartTime = Date.now();
       const response = await llmRouter.chat(messages, callSid, isDemoCall ? null : TOOLS);
       const llmEndTime = Date.now();
@@ -652,7 +656,7 @@ export async function handleTwilioStream(ws) {
 
       // Queue TTS request to prevent concurrent connections hitting rate limits
       // v2.x: audioChunk is already a Buffer from cartesia.js
-      await cartesia.queueSpeakText(text, (audioChunk) => {
+      const ttsResult = await cartesia.queueSpeakText(text, (audioChunk) => {
         // Convert Buffer to Base64 for Twilio
         const base64Audio = audioChunk.toString('base64');
         ws.send(
@@ -665,13 +669,33 @@ export async function handleTwilioStream(ws) {
           })
         );
       });
+
+      // HALF-DUPLEX: Wait for audio to actually play on caller's phone
+      // Cartesia "done" means audio SENT, not audio HEARD by caller
+      // Playback started when FIRST chunk was sent, not when streaming completed
+      // So remaining playback = audioMs - streamingDurationMs
+      const playbackBuffer = 300; // Extra buffer for Twilio latency
+      const remainingPlaybackMs = Math.max(0, ttsResult.audioMs - ttsResult.streamingDurationMs);
+      const playbackWaitMs = remainingPlaybackMs + playbackBuffer;
+
+      twilioLogger.debug('🔇 HALF-DUPLEX: Waiting for playback to complete', {
+        callSid,
+        audioMs: ttsResult.audioMs,
+        streamingMs: ttsResult.streamingDurationMs,
+        remainingMs: remainingPlaybackMs,
+        bufferMs: playbackBuffer,
+        totalWaitMs: playbackWaitMs,
+      });
+
+      await new Promise(resolve => setTimeout(resolve, playbackWaitMs));
+
     } catch (error) {
       twilioLogger.error('Error in sendAIResponse', error);
       throw error;
     } finally {
-      // HALF-DUPLEX: Resume listening after TTS completes (or fails)
+      // HALF-DUPLEX: Resume listening after playback completes (or fails)
       isSpeaking = false;
-      twilioLogger.debug('🔊 HALF-DUPLEX: Resuming user audio (AI finished)', { callSid });
+      twilioLogger.debug('🔊 HALF-DUPLEX: Resuming user audio (playback complete)', { callSid });
     }
   }
 
@@ -704,6 +728,8 @@ export async function handleTwilioStream(ws) {
         llmProvider: primaryProvider,
         avgLatency: llmCalls > 0 ? Math.round(totalLatency / llmCalls) : 0,
         totalCost,
+        // Include userConfig for webhook to use
+        userConfig,
       };
 
       // LOG FULL CALL TRANSCRIPT (VERBOSE)
@@ -778,13 +804,13 @@ export async function handleTwilioStream(ws) {
 
         await initialize(toNumber, fromNumber);
       } else if (msg.event === 'media') {
-        // HALF-DUPLEX: Only forward audio to Deepgram when AI is NOT speaking
-        // This prevents interruptions and echo from being processed as user speech
-        if (!isSpeaking && deepgramConnection && msg.media?.payload) {
+        // ALWAYS forward audio to Deepgram to keep connection alive
+        // The onTranscript guard will discard any speech detected while AI is speaking
+        // (Blocking audio here causes Deepgram to timeout and close)
+        if (deepgramConnection && msg.media?.payload) {
           const audioBuffer = Buffer.from(msg.media.payload, 'base64');
           deepgram.sendAudio(deepgramConnection, audioBuffer);
         }
-        // Audio received while AI speaking is intentionally discarded
       } else if (msg.event === 'stop') {
         twilioLogger.info('Call stopped', { callSid });
 

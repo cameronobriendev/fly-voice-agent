@@ -165,6 +165,12 @@ export async function updateRecordingUrl(twilioCallSid, recordingUrl) {
  * @returns {Promise<Object|null>} Demo request with industry_slug, or null if not found
  */
 export async function getDemoRequestByPhone(phoneNumber) {
+  // If database not configured, return null (BuddyHelps uses dashboard API)
+  if (!sql) {
+    dbLogger.debug('Database not configured, skipping demo request lookup');
+    return null;
+  }
+
   try {
     dbLogger.info('Looking up demo request by phone', { phone: phoneNumber });
 

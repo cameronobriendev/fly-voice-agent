@@ -38,7 +38,7 @@ export class CartesiaService {
    * Prevents Cartesia concurrency limit errors
    * @param {string} text - Text to synthesize
    * @param {Function} onAudioChunk - Callback for each audio chunk
-   * @returns {Promise<void>}
+   * @returns {Promise<{totalBytes: number, audioSeconds: number, audioMs: number}>} Audio duration info
    */
   async queueSpeakText(text, onAudioChunk) {
     return new Promise((resolve, reject) => {
@@ -80,8 +80,8 @@ export class CartesiaService {
       });
 
       try {
-        await this.speakTextWithRetry(request.text, request.onAudioChunk);
-        request.resolve();
+        const result = await this.speakTextWithRetry(request.text, request.onAudioChunk);
+        request.resolve(result);  // Pass through audio duration info
       } catch (error) {
         request.reject(error);
       }
@@ -151,7 +151,7 @@ export class CartesiaService {
    * Generate speech via WebSocket streaming
    * @param {string} text - Text to convert to speech
    * @param {Function} onAudioChunk - Callback for each audio chunk (receives Buffer)
-   * @returns {Promise<void>} Resolves when complete
+   * @returns {Promise<{totalBytes: number, audioSeconds: number, audioMs: number}>} Audio duration info
    */
   async speakText(text, onAudioChunk) {
     return new Promise((resolve, reject) => {
@@ -236,6 +236,7 @@ export class CartesiaService {
             }
 
             chunkCount++;
+            this.lastChunkTime = Date.now(); // Track for playback timing
 
             // Decode Base64 audio data
             const audioBuffer = Buffer.from(message.data, 'base64');
@@ -271,7 +272,16 @@ export class CartesiaService {
 
             this.lastActivity = Date.now();
             cleanup();
-            resolve();
+
+            // Return audio duration info for half-duplex playback timing
+            const audioSeconds = totalBytes / 8000;
+            const streamingDurationMs = firstChunkTime ? (endTime - firstChunkTime) : 0;
+            resolve({
+              totalBytes,
+              audioSeconds,
+              audioMs: Math.ceil(audioSeconds * 1000),
+              streamingDurationMs, // Time from first chunk to last chunk
+            });
 
           } else if (message.type === 'error') {
             clearTimeout(warningTimeout);
@@ -323,7 +333,7 @@ export class CartesiaService {
    * @param {Function} onAudioChunk - Callback for each audio chunk
    * @param {number} maxRetries - Maximum number of retry attempts (default 1)
    * @param {number} timeoutMs - Timeout in milliseconds (default 10000 = 10 seconds)
-   * @returns {Promise<void>} Resolves when complete or rejects after all retries fail
+   * @returns {Promise<{totalBytes: number, audioSeconds: number, audioMs: number}>} Audio duration info
    */
   async speakTextWithRetry(text, onAudioChunk, maxRetries = 1, timeoutMs = 10000) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {

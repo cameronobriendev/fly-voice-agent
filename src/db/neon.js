@@ -1,6 +1,8 @@
 /**
  * Neon Postgres database client
  * Uses @neondatabase/serverless for serverless-optimized connections
+ *
+ * NOTE: Database is optional for BuddyHelps (uses dashboard API instead)
  */
 
 import { neon } from '@neondatabase/serverless';
@@ -8,16 +10,20 @@ import { logger } from '../utils/logger.js';
 
 const dbLogger = logger.child('DB');
 
-if (!process.env.DATABASE_URL) {
-  dbLogger.error('DATABASE_URL environment variable is not set');
-  throw new Error('DATABASE_URL is required');
-}
+// Database is optional - BuddyHelps uses dashboard API instead
+export const sql = process.env.DATABASE_URL ? neon(process.env.DATABASE_URL) : null;
 
-// Create SQL query function
-export const sql = neon(process.env.DATABASE_URL);
+if (!process.env.DATABASE_URL) {
+  dbLogger.info('DATABASE_URL not set - database features disabled (using dashboard API)');
+}
 
 // Test database connection
 export async function testConnection() {
+  if (!sql) {
+    dbLogger.info('Database not configured, skipping connection test');
+    return false;
+  }
+
   try {
     const result = await sql`SELECT NOW() as current_time`;
     dbLogger.info('Database connection successful', {

@@ -27,7 +27,7 @@ export class DeepgramService {
   async startStream(onTranscript, onError) {
     try {
       const connection = this.client.listen.live({
-        model: 'nova-2',
+        model: 'nova-2-phonecall',  // Phone-optimized model for better 8kHz audio recognition
         language: 'en-US',
         smart_format: true,
         interim_results: true,   // REQUIRED for utterance_end_ms
@@ -38,6 +38,36 @@ export class DeepgramService {
         // Utterance boundary detection
         utterance_end_ms: 1000,  // 1 second of silence = end of utterance (fallback)
         endpointing: 400,        // 400ms VAD-based endpoint detection (balance speed vs interruptions)
+        // Keyword boosting for plumbing terms (improves transcription accuracy)
+        keywords: [
+          'clogged:2',
+          'clog:2',
+          'leak:2',
+          'leaking:2',
+          'drain:2',
+          'toilet:2',
+          'faucet:2',
+          'pipe:2',
+          'pipes:2',
+          'water heater:2',
+          'sewer:2',
+          'backup:2',
+          'overflow:2',
+          'plumber:2',
+          'plumbing:2',
+          'emergency:2',
+          'burst:2',
+          'broken:2',
+          'running:1.5',
+          'dripping:1.5',
+          'flooding:2',
+          'flooded:2',
+          'garbage disposal:2',
+          'sink:1.5',
+          'shower:1.5',
+          'bathtub:1.5',
+          'sprinkler:1.5',
+        ],
       });
 
       // Accumulate transcript segments until speech is complete
