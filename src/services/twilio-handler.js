@@ -18,6 +18,14 @@ import { sendToWebhook } from './post-call.js';
 import { onCallStart, onCallEnd } from './metrics.js';
 import { TOOLS } from '../prompts/template.js';
 import { logger } from '../utils/logger.js';
+import {
+  initCallEvents,
+  addEvent,
+  addTurnEvent,
+  addErrorEvent,
+  finishAndGetEvents,
+  sendEventsToDashboard,
+} from './call-events.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -206,8 +214,15 @@ export async function handleTwilioStream(ws) {
       twilioLogger.info('Initializing database and Deepgram while ringback plays', { callSid });
 
       // Fetch user configuration from BuddyHelps Dashboard API
+      const configStartTime = Date.now();
       userConfig = await getConfigFromDashboard(twilioNumber);
       userId = userConfig.user_id; // Will be null for BuddyHelps
+
+      addEvent(callSid, 'config_fetched', {
+        latency_ms: Date.now() - configStartTime,
+        business_name: userConfig.business_name,
+        is_demo: userConfig.is_demo,
+      });
 
       twilioLogger.info('User configuration loaded', {
         userId,
@@ -233,10 +248,15 @@ export async function handleTwilioStream(ws) {
       llmRouter = new LLMRouter();
 
       // Start Deepgram stream (STT) - can start listening early
+      const deepgramStartTime = Date.now();
       deepgramConnection = await deepgram.startStream(
         onTranscript,
         onDeepgramError
       );
+
+      addEvent(callSid, 'deepgram_connected', {
+        latency_ms: Date.now() - deepgramStartTime,
+      });
 
       const preRingbackEndTime = Date.now();
       const preRingbackDuration = preRingbackEndTime - initStartTime;
@@ -259,9 +279,15 @@ export async function handleTwilioStream(ws) {
       // v2.x: No delay needed - lazy connection works on first send()
       const voiceId = userConfig?.ai_voice_id || null;
       cartesia = new CartesiaService();
+      const cartesiaStartTime = Date.now();
       cartesiaConnection = await cartesia.connect(voiceId);
 
       const cartesiaConnectedTime = Date.now();
+      addEvent(callSid, 'cartesia_connected', {
+        latency_ms: cartesiaConnectedTime - cartesiaStartTime,
+        voice_id: voiceId || 'default',
+      });
+
       twilioLogger.info('Cartesia connected and ready (v2.x)', {
         callSid,
         ttsProvider: 'Cartesia WebSocket v2.x',
@@ -273,8 +299,17 @@ export async function handleTwilioStream(ws) {
       // STEP 5: Generate greeting via LLM (so it has full context)
       twilioLogger.info('Generating greeting via LLM', { callSid });
 
+      const greetingLlmStart = Date.now();
       const greetingResponse = await llmRouter.chat(messages, callSid, null);
+      const greetingLlmEnd = Date.now();
       const greeting = stripFunctionCalls(greetingResponse.content || '');
+
+      addEvent(callSid, 'greeting_generated', {
+        llm_latency_ms: greetingLlmEnd - greetingLlmStart,
+        llm_provider: greetingResponse.provider,
+        greeting_length: greeting.length,
+        greeting_preview: greeting.substring(0, 100),
+      });
 
       // Add greeting to conversation history so LLM has context
       messages.push({
@@ -387,8 +422,30 @@ export async function handleTwilioStream(ws) {
       return;
     }
 
+    // Store raw transcript before corrections
+    const rawTranscript = transcriptText;
+
     // Correct commonly misheard plumbing terms
     const correctedText = correctPlumbingTerms(transcriptText);
+
+    // Track what corrections were applied
+    const appliedCorrections = {};
+    if (rawTranscript !== correctedText) {
+      // Find which corrections were applied
+      const corrections = {
+        'quogged': 'clogged', 'quarked': 'clogged', 'corked': 'clogged',
+        'clocked': 'clogged', 'cloged': 'clogged', 'clagged': 'clogged',
+        'cogged': 'clogged', 'quoged': 'clogged', 'clogt': 'clogged',
+        'leek': 'leak', 'leke': 'leak', 'drane': 'drain', 'drayne': 'drain',
+        'fossit': 'faucet', 'fausit': 'faucet', 'fosset': 'faucet',
+        'toylet': 'toilet', 'tolet': 'toilet', 'plumer': 'plumber', 'plummer': 'plumber',
+      };
+      for (const [wrong, right] of Object.entries(corrections)) {
+        if (rawTranscript.toLowerCase().includes(wrong)) {
+          appliedCorrections[wrong] = right;
+        }
+      }
+    }
 
     try {
       // LOG TRANSCRIPT ENTRY (VERBOSE)
@@ -529,6 +586,21 @@ export async function handleTwilioStream(ws) {
             toolsExecuted: response.toolCalls.length,
             provider: response.provider,
           });
+
+          // Record turn event with full timing
+          addTurnEvent(callSid, {
+            transcriptRaw: rawTranscript,
+            transcript: correctedText,
+            corrections: Object.keys(appliedCorrections).length > 0 ? appliedCorrections : null,
+            aiResponse: cleanContent,
+            llmProvider: response.provider,
+            llmModel: response.model,
+            tokensIn: response.tokens?.input || null,
+            tokensOut: response.tokens?.output || null,
+            llmLatency: (llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime),
+            ttsLatency: ttsEndTime - ttsStartTime,
+            pipelineLatency: ttsEndTime - transcriptReceivedAt,
+          });
         }
       } else if (response.content) {
         // No tool calls - just a regular text response
@@ -564,10 +636,30 @@ export async function handleTwilioStream(ws) {
             responseLength: cleanContent.length,
             provider: response.provider,
           });
+
+          // Record turn event with full timing
+          addTurnEvent(callSid, {
+            transcriptRaw: rawTranscript,
+            transcript: correctedText,
+            corrections: Object.keys(appliedCorrections).length > 0 ? appliedCorrections : null,
+            aiResponse: cleanContent,
+            llmProvider: response.provider,
+            llmModel: response.model,
+            tokensIn: response.tokens?.input || null,
+            tokensOut: response.tokens?.output || null,
+            llmLatency: llmEndTime - llmStartTime,
+            ttsLatency: ttsEndTime - ttsStartTime,
+            pipelineLatency: ttsEndTime - transcriptReceivedAt,
+          });
         }
       }
     } catch (error) {
       twilioLogger.error('Error processing transcript', error);
+
+      // Record error event
+      addErrorEvent(callSid, 'transcript_processing', error, {
+        transcript: correctedText,
+      });
 
       // Provide user feedback on error instead of silence
       try {
@@ -579,6 +671,7 @@ export async function handleTwilioStream(ws) {
         await sendAIResponse(errorResponse);
       } catch (ttsError) {
         twilioLogger.error('Failed to send error response', ttsError);
+        addErrorEvent(callSid, 'error_response_tts', ttsError);
       }
     }
   }
@@ -763,7 +856,20 @@ export async function handleTwilioStream(ws) {
 
       twilioLogger.info('Sending call data to webhook', { callSid });
 
-      await sendToWebhook(userId, callData);
+      const webhookResult = await sendToWebhook(userId, callData);
+
+      // Get all events collected during the call
+      const events = finishAndGetEvents(callSid);
+
+      // Send events to dashboard (uses callId from webhook result)
+      if (webhookResult?.callId && events.length > 0) {
+        await sendEventsToDashboard(webhookResult.callId, events);
+        twilioLogger.info('Call events sent to dashboard', {
+          callSid,
+          callId: webhookResult.callId,
+          eventCount: events.length,
+        });
+      }
 
       // Track call end
       onCallEnd();
@@ -774,9 +880,11 @@ export async function handleTwilioStream(ws) {
         llmCalls,
         avgLatency: callData.avgLatency,
         cost: totalCost.toFixed(4),
+        events: events.length,
       });
     } catch (error) {
       twilioLogger.error('Error finalizing call', error);
+      addErrorEvent(callSid, 'finalize', error);
     }
   }
 
@@ -801,6 +909,9 @@ export async function handleTwilioStream(ws) {
           to: toNumber,
           customParameters: msg.start.customParameters,
         });
+
+        // Initialize event tracking for this call
+        initCallEvents(callSid);
 
         await initialize(toNumber, fromNumber);
       } else if (msg.event === 'media') {
