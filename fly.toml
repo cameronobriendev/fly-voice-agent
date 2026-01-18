@@ -1,9 +1,9 @@
-# fly.toml app configuration file for buddy-fly-voice-agent
+# fly.toml app configuration file
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'buddy-fly-voice-agent'
+app = 'fly-voice-agent-red-darkness-2650'
 primary_region = 'sjc'
 
 [build]
