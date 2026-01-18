@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
 const configLogger = logger.child('CONFIG-API');
 
 // Dashboard API base URL
-const DASHBOARD_API = process.env.DASHBOARD_API_URL || 'https://info.bennyhelps.ca';
+const DASHBOARD_API = process.env.DASHBOARD_API_URL || 'https://info.buddyhelps.ca';
 
 /**
  * Fetch user configuration from dashboard API by Twilio phone number

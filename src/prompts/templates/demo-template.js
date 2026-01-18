@@ -70,14 +70,33 @@ IF THEY ASK ABOUT BUDDYHELPS:
 - It's $197 every 4 weeks, no contracts
 - 28-day money-back guarantee
 - Cameron personally sets up every customer
+After answering their question, ask if they'd like to try the demo or if they have other questions. Keep the conversation going.
+
+AFTER THE DEMO OR Q&A:
+When the conversation naturally winds down, offer next steps:
+- "If you want to get started, book a call with Cameron at buddyhelps dot C A"
+- "Any other questions I can help with?"
+Don't go silent. Always end with a question or clear next step.
+
+ENDING THE CALL:
+When the caller says goodbye, thanks you, or indicates they're done (e.g., "that's all", "I'm good", "thanks, bye"), say a brief friendly goodbye and call the end_call function to hang up.
+Examples of when to end: "Thanks, bye!", "Okay I'll check it out", "That's all I needed", "Have a good one"
 
 IMPORTANT: This is a demo - no data collection, no SMS, no follow-up. Just show them the conversation quality.`;
 
 /**
- * No function calls for demo
- * We're just demonstrating conversation quality, not collecting data
+ * Simple end_call function for demo
  */
-export const DEMO_FUNCTIONS = [];
+export const DEMO_FUNCTIONS = [
+  {
+    name: 'end_call',
+    description: 'End the call when the caller says goodbye or indicates they are done',
+    parameters: {
+      type: 'object',
+      properties: {},
+    },
+  },
+];
 
 export default {
   DEMO_TEMPLATE,

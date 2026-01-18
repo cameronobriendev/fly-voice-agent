@@ -76,7 +76,9 @@ ENDING:
 Once you have all the info, confirm:
 "Perfect, I've got everything. Our team will call you back at {{PHONE}} {{CALLBACK_WINDOW}}. Is there anything else I should tell them?"
 
-Then end politely and call the end_call_with_summary function.`;
+Then end politely and call the end_call function.
+
+When the caller says goodbye, thanks you, or indicates they're done (e.g., "that's all", "I'm good", "thanks, bye"), say a brief friendly goodbye and call the end_call function to hang up.`;
 
 /**
  * Function definitions for the LLM (client version)
@@ -125,23 +127,11 @@ export const CLIENT_FUNCTIONS = [
     },
   },
   {
-    name: 'end_call_with_summary',
-    description:
-      'Call this when you have all necessary information and are ready to end the call',
+    name: 'end_call',
+    description: 'End the call when the caller says goodbye or indicates they are done',
     parameters: {
       type: 'object',
-      properties: {
-        summary: {
-          type: 'string',
-          description: 'Brief summary of the call',
-        },
-        priority: {
-          type: 'string',
-          enum: ['emergency', 'urgent', 'standard'],
-          description: 'Priority level of this request',
-        },
-      },
-      required: ['summary', 'priority'],
+      properties: {},
     },
   },
 ];

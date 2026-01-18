@@ -572,7 +572,7 @@ export async function handleTwilioStream(ws) {
           });
 
           const ttsStartTime = Date.now();
-          await sendAIResponse(cleanContent);
+          const ttsResult = await sendAIResponse(cleanContent);
           const ttsEndTime = Date.now();
 
           // Log detailed latency breakdown
@@ -580,8 +580,9 @@ export async function handleTwilioStream(ws) {
             callSid,
             firstLlmLatency: `${llmEndTime - llmStartTime}ms`,
             secondLlmLatency: `${followUpEndTime - followUpStartTime}ms`,
-            ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
-            totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
+            ttsTtfb: `${ttsResult?.ttfb || 0}ms`,
+            ttsAudioMs: `${ttsResult?.audioMs || 0}ms`,
+            totalPipelineLatency: `${(llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime) + (ttsResult?.ttfb || 0)}ms`,
             responseLength: cleanContent.length,
             toolsExecuted: response.toolCalls.length,
             provider: response.provider,
@@ -598,8 +599,10 @@ export async function handleTwilioStream(ws) {
             tokensIn: response.tokens?.input || null,
             tokensOut: response.tokens?.output || null,
             llmLatency: (llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime),
-            ttsLatency: ttsEndTime - ttsStartTime,
-            pipelineLatency: ttsEndTime - transcriptReceivedAt,
+            ttsLatency: ttsResult?.ttfb || null, // TTFB, not total time
+            ttsAudioMs: ttsResult?.audioMs || null,
+            ttsStreamingMs: ttsResult?.streamingMs || null,
+            pipelineLatency: (llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime) + (ttsResult?.ttfb || 0),
           });
         }
       } else if (response.content) {
@@ -624,15 +627,16 @@ export async function handleTwilioStream(ws) {
           });
 
           const ttsStartTime = Date.now();
-          await sendAIResponse(cleanContent);
+          const ttsResult = await sendAIResponse(cleanContent);
           const ttsEndTime = Date.now();
 
           // Log detailed latency breakdown
           twilioLogger.info('⏱️ RESPONSE TIMING BREAKDOWN', {
             callSid,
             llmLatency: `${llmEndTime - llmStartTime}ms`,
-            ttsLatency: `${ttsEndTime - ttsStartTime}ms`,
-            totalPipelineLatency: `${ttsEndTime - transcriptReceivedAt}ms`,
+            ttsTtfb: `${ttsResult?.ttfb || 0}ms`,
+            ttsAudioMs: `${ttsResult?.audioMs || 0}ms`,
+            totalPipelineLatency: `${(llmEndTime - llmStartTime) + (ttsResult?.ttfb || 0)}ms`,
             responseLength: cleanContent.length,
             provider: response.provider,
           });
@@ -648,8 +652,10 @@ export async function handleTwilioStream(ws) {
             tokensIn: response.tokens?.input || null,
             tokensOut: response.tokens?.output || null,
             llmLatency: llmEndTime - llmStartTime,
-            ttsLatency: ttsEndTime - ttsStartTime,
-            pipelineLatency: ttsEndTime - transcriptReceivedAt,
+            ttsLatency: ttsResult?.ttfb || null, // TTFB, not total time
+            ttsAudioMs: ttsResult?.audioMs || null,
+            ttsStreamingMs: ttsResult?.streamingMs || null,
+            pipelineLatency: (llmEndTime - llmStartTime) + (ttsResult?.ttfb || 0),
           });
         }
       }
@@ -706,6 +712,16 @@ export async function handleTwilioStream(ws) {
       }, 5000); // Give time for final message to play
 
       return { success: true, callEnding: true, summary: args.summary };
+    } else if (functionName === 'end_call') {
+      // Simple end call (for demo calls)
+      twilioLogger.info('Call ending (simple)', { callSid });
+
+      // Schedule call close after TTS completes
+      setTimeout(() => {
+        ws.close();
+      }, 5000); // Give time for final message to play
+
+      return { success: true, callEnding: true };
     }
 
     return { success: false, error: 'Unknown tool' };
@@ -781,6 +797,13 @@ export async function handleTwilioStream(ws) {
       });
 
       await new Promise(resolve => setTimeout(resolve, playbackWaitMs));
+
+      // Return timing data for event logging
+      return {
+        ttfb: ttsResult.ttfb,
+        audioMs: ttsResult.audioMs,
+        streamingMs: ttsResult.streamingDurationMs,
+      };
 
     } catch (error) {
       twilioLogger.error('Error in sendAIResponse', error);

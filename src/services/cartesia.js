@@ -297,6 +297,7 @@ export class CartesiaService {
               audioSeconds,
               audioMs: Math.ceil(audioSeconds * 1000),
               streamingDurationMs, // Time from first chunk to last chunk
+              ttfb: ttfb || totalLatency, // Time to first byte (actual TTS latency metric)
             });
 
           } else if (message.type === 'error') {
