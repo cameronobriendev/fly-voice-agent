@@ -39,6 +39,9 @@ export async function sendToWebhook(userId, callData) {
 
     // Demo flag - skip notifications for demo calls
     is_demo: userConfig?.is_demo || false,
+
+    // Twilio call SID for recording lookup
+    call_sid: callData.callSid,
   };
 
   try {
