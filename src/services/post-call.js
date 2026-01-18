@@ -36,6 +36,9 @@ export async function sendToWebhook(userId, callData) {
     plumber_phone: userConfig?.plumber_phone || null,
     plumber_email: userConfig?.plumber_email || null,
     twilio_number: callData.toNumber,
+
+    // Demo flag - skip notifications for demo calls
+    is_demo: userConfig?.is_demo || false,
   };
 
   try {
