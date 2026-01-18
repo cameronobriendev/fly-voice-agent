@@ -53,6 +53,10 @@ export async function buildPrompt(userConfig, templateType = null, callerNumber 
     prompt = prompt.replace(/{{BUSINESS_NAME}}/g, userConfig.business_name || 'our company');
     prompt = prompt.replace(/{{GREETING_NAME}}/g, userConfig.greeting_name || 'the assistant');
     prompt = prompt.replace(/{{INDUSTRY}}/g, userConfig.industry || 'service');
+    // Also substitute SERVICE_NAME and ASSISTANT_NAME
+    prompt = prompt.replace(/{{SERVICE_NAME}}/g, userConfig.business_name || 'our service');
+    const assistantName = getAssistantName(userConfig.business_name);
+    prompt = prompt.replace(/{{ASSISTANT_NAME}}/g, assistantName);
     return prompt;
   }
 
