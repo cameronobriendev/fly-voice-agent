@@ -13,6 +13,19 @@ import { logger } from '../utils/logger.js';
 
 const cartesiaLogger = logger.child('CARTESIA');
 
+/**
+ * Normalize text for better TTS pronunciation
+ * Fixes domain extensions, abbreviations, etc.
+ */
+function normalizeTextForTTS(text) {
+  return text
+    // Domain extensions - spell out for clarity
+    .replace(/\.ca\b/gi, ' dot C A')
+    .replace(/\.com\b/gi, ' dot com')
+    .replace(/\.org\b/gi, ' dot org')
+    .replace(/\.net\b/gi, ' dot net');
+}
+
 export class CartesiaService {
   constructor() {
     if (!process.env.CARTESIA_API_KEY) {
@@ -169,10 +182,13 @@ export class CartesiaService {
       this.contextCounter++;
       const contextId = `tts-${Date.now()}-${this.contextCounter}`;
 
+      // Normalize text for better pronunciation
+      const normalizedText = normalizeTextForTTS(text);
+
       cartesiaLogger.debug('🔊 Sending TTS request', {
         contextId,
-        textLength: text.length,
-        text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+        textLength: normalizedText.length,
+        text: normalizedText.substring(0, 100) + (normalizedText.length > 100 ? '...' : ''),
       });
 
       // Build request (WebSocket API uses snake_case!)
@@ -183,7 +199,7 @@ export class CartesiaService {
           mode: 'id',
           id: this.currentVoiceId,
         },
-        transcript: text,
+        transcript: normalizedText,
         language: 'en',
         output_format: {
           container: 'raw',
