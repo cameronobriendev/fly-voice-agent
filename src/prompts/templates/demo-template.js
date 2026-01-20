@@ -82,23 +82,11 @@ ENDING THE CALL:
 When the caller says goodbye, thanks you, or indicates they're done (e.g., "that's all", "I'm good", "thanks, bye"), say a brief friendly goodbye and call the end_call function to hang up.
 Examples of when to end: "Thanks, bye!", "Okay I'll check it out", "That's all I needed", "Have a good one"
 
-IMPORTANT: This is a demo - no data collection, no SMS, no follow-up. Just show them the conversation quality.`;
+IMPORTANT: Collect caller information using the update_service_request function just like a real call. This lets us show them what data we captured from their demo.`;
 
-/**
- * Simple end_call function for demo
- */
-export const DEMO_FUNCTIONS = [
-  {
-    name: 'end_call',
-    description: 'End the call when the caller says goodbye or indicates they are done',
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-  },
-];
+// Note: Tools are now centralized in src/prompts/tools/
+// All calls (including demo) use getToolsForConfig() from tools/index.js
 
 export default {
   DEMO_TEMPLATE,
-  DEMO_FUNCTIONS,
 };

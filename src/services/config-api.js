@@ -10,6 +10,36 @@ const configLogger = logger.child('CONFIG-API');
 // Dashboard API base URL
 const DASHBOARD_API = process.env.DASHBOARD_API_URL || 'https://info.buddyhelps.ca';
 
+// Pumble API for alerts
+const PUMBLE_API = process.env.PUMBLE_API;
+
+/**
+ * Send alert to Pumble when config error occurs
+ */
+async function notifyPumble(message) {
+  if (!PUMBLE_API) {
+    configLogger.warn('PUMBLE_API not configured, skipping notification');
+    return;
+  }
+
+  try {
+    await fetch('https://pumble-api-keys.addons.marketplace.cake.com/sendMessage', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Api-Key': PUMBLE_API,
+      },
+      body: JSON.stringify({
+        channel: 'buddyhelps-alerts',
+        text: message,
+      }),
+    });
+    configLogger.info('Pumble alert sent');
+  } catch (err) {
+    configLogger.error('Pumble notification failed', err);
+  }
+}
+
 /**
  * Fetch user configuration from dashboard API by Twilio phone number
  * @param {string} twilioNumber - The Twilio phone number (E.164 format)
@@ -23,11 +53,19 @@ export async function getConfigFromDashboard(twilioNumber) {
     const response = await fetch(url);
 
     if (!response.ok) {
-      if (response.status === 404) {
-        throw new Error(`No config found for number: ${twilioNumber}`);
-      }
-      if (response.status === 403) {
-        throw new Error(`Phone number is not active: ${twilioNumber}`);
+      if (response.status === 404 || response.status === 403) {
+        const reason = response.status === 404 ? 'not configured' : 'not active';
+        configLogger.warn(`Config error: ${twilioNumber} is ${reason}`, { status: response.status });
+
+        // Notify Pumble about unconfigured call
+        notifyPumble(`⚠️ *BuddyHelps Alert*\nCall to unconfigured number: ${twilioNumber}\nReason: ${reason}\nCaller heard error message and was asked to call back.`);
+
+        // Return error config - twilio-handler will play error message
+        return {
+          _configError: true,
+          _errorReason: reason,
+          twilio_phone_number: twilioNumber,
+        };
       }
       throw new Error(`Dashboard API error: ${response.status}`);
     }
@@ -55,7 +93,7 @@ export async function getConfigFromDashboard(twilioNumber) {
       twilio_phone_number: twilioNumber,
       user_id: null, // Not needed for BuddyHelps
       industry: 'plumbing', // BuddyHelps is plumbing-focused
-      ai_voice_id: null, // Use default Cartesia voice
+      ai_voice_id: config.voice_id || null, // Custom Cartesia voice or null for default
       service_area: null,
 
       // Generate greetings based on config

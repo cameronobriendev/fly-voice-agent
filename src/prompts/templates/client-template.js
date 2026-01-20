@@ -80,63 +80,9 @@ Then end politely and call the end_call function.
 
 When the caller says goodbye, thanks you, or indicates they're done (e.g., "that's all", "I'm good", "thanks, bye"), say a brief friendly goodbye and call the end_call function to hang up.`;
 
-/**
- * Function definitions for the LLM (client version)
- */
-export const CLIENT_FUNCTIONS = [
-  {
-    name: 'update_service_request',
-    description:
-      'Update the service request with new information as you learn it during the conversation',
-    parameters: {
-      type: 'object',
-      properties: {
-        serviceType: {
-          type: 'string',
-          description: 'Type of service needed',
-        },
-        propertyType: {
-          type: 'string',
-          description: 'residential or commercial',
-        },
-        issue: {
-          type: 'string',
-          description: 'The specific problem or issue',
-        },
-        started: {
-          type: 'string',
-          description: 'When the issue started',
-        },
-        emergency: {
-          type: 'boolean',
-          description: 'Is this an emergency?',
-        },
-        contactPhone: {
-          type: 'string',
-          description: 'Best phone number to reach them',
-        },
-        callbackTime: {
-          type: 'string',
-          description: 'Best time to call back',
-        },
-        notes: {
-          type: 'string',
-          description: 'Any additional details or notes',
-        },
-      },
-    },
-  },
-  {
-    name: 'end_call',
-    description: 'End the call when the caller says goodbye or indicates they are done',
-    parameters: {
-      type: 'object',
-      properties: {},
-    },
-  },
-];
+// Note: Tools are now centralized in src/prompts/tools/
+// All calls use getToolsForConfig() from tools/index.js
 
 export default {
   CLIENT_TEMPLATE,
-  CLIENT_FUNCTIONS,
 };

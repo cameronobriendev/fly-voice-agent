@@ -16,7 +16,7 @@ import { CartesiaService } from './cartesia.js';
 import { LLMRouter } from './llm-router.js';
 import { sendToWebhook } from './post-call.js';
 import { onCallStart, onCallEnd } from './metrics.js';
-import { TOOLS } from '../prompts/template.js';
+import { getToolsForConfig } from '../prompts/tools/index.js';
 import { logger } from '../utils/logger.js';
 import {
   initCallEvents,
@@ -216,6 +216,59 @@ export async function handleTwilioStream(ws) {
       // Fetch user configuration from BuddyHelps Dashboard API
       const configStartTime = Date.now();
       userConfig = await getConfigFromDashboard(twilioNumber);
+
+      // Validate required config fields (if not already an error from API)
+      if (!userConfig._configError && (!userConfig.business_name || !userConfig.greeting_name)) {
+        twilioLogger.error('Invalid config - missing required fields', {
+          twilioNumber,
+          hasBusinessName: !!userConfig.business_name,
+          hasGreetingName: !!userConfig.greeting_name,
+        });
+        userConfig._configError = true;
+        userConfig._errorReason = 'invalid config (missing fields)';
+      }
+
+      // Handle any config error (404/403 from API or validation failure)
+      if (userConfig._configError) {
+        addEvent(callSid, 'config_error', {
+          latency_ms: Date.now() - configStartTime,
+          reason: userConfig._errorReason,
+          twilio_number: twilioNumber,
+        });
+
+        twilioLogger.warn('Config error - playing error message', {
+          callSid,
+          twilioNumber,
+          reason: userConfig._errorReason,
+        });
+
+        // Initialize Cartesia just for error message
+        cartesia = new CartesiaService();
+        cartesiaConnection = await cartesia.connect(null);
+
+        const errorMessage = "We're sorry, we're experiencing technical difficulties. Please try your call again later. Goodbye.";
+
+        await cartesia.queueSpeakText(errorMessage, (audioChunk) => {
+          if (twilioWs && twilioWs.readyState === 1) {
+            twilioWs.send(JSON.stringify({
+              event: 'media',
+              streamSid,
+              media: { payload: audioChunk },
+            }));
+          }
+        });
+
+        // Wait for playback to finish
+        await new Promise(resolve => setTimeout(resolve, 4000));
+
+        twilioLogger.info('Error message complete, ending call', { callSid });
+        if (cartesia) cartesia.close();
+        if (twilioWs && twilioWs.readyState === 1) {
+          twilioWs.close();
+        }
+        return;
+      }
+
       userId = userConfig.user_id; // Will be null for BuddyHelps
 
       addEvent(callSid, 'config_fetched', {
@@ -473,10 +526,10 @@ export async function handleTwilioStream(ws) {
       });
 
       // Get LLM response with timing
-      // Demo calls don't use tools (faster response, no data capture needed)
-      const isDemoCall = userConfig.is_demo;
+      // Tools are determined by config (all calls get data collection by default)
+      const tools = getToolsForConfig(userConfig);
       const llmStartTime = Date.now();
-      const response = await llmRouter.chat(messages, callSid, isDemoCall ? null : TOOLS);
+      const response = await llmRouter.chat(messages, callSid, tools);
       const llmEndTime = Date.now();
 
       llmCalls++;
