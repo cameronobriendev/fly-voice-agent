@@ -1,9 +1,15 @@
 /**
  * Post-call webhook service
  * Sends call data to BuddyHelps Dashboard
+ *
+ * Flow:
+ * 1. Call ends → transcript available
+ * 2. Extract structured data from transcript (GPT-OSS-20B with strict JSON)
+ * 3. Send extracted data + transcript to dashboard webhook
  */
 
 import { logger } from '../utils/logger.js';
+import { extractFromTranscript } from './transcript-extractor.js';
 
 const webhookLogger = logger.child('WEBHOOK');
 
@@ -79,22 +85,45 @@ function trackFailure() {
  * @returns {Promise<Object>} Webhook response
  */
 export async function sendToWebhook(userId, callData) {
-  const { userConfig, collectedData } = callData;
+  const { userConfig } = callData;
 
-  // Map to BuddyHelps Dashboard format
+  // Format transcript first (needed for extraction)
+  const transcriptText = formatTranscript(callData.transcript);
+
+  // Extract structured data from transcript using GPT-OSS-20B
+  // This replaces the unreliable tool-calling approach
+  webhookLogger.info('Extracting call data from transcript', {
+    callSid: callData.callSid,
+    transcriptLength: transcriptText.length,
+  });
+
+  const extracted = await extractFromTranscript(transcriptText);
+
+  webhookLogger.info('Extraction complete', {
+    callSid: callData.callSid,
+    extracted: {
+      hasName: !!extracted.caller_name,
+      hasPhone: !!extracted.contact_phone,
+      hasAddress: !!extracted.address,
+      hasIssue: !!extracted.issue_description,
+      urgency: extracted.urgency_level,
+    },
+  });
+
+  // Map to BuddyHelps Dashboard format using extracted data
   const payload = {
-    // Caller info
+    // Caller info (from extraction)
     caller_phone: callData.fromNumber,
-    caller_name: collectedData.callerName || null,
-    caller_address: collectedData.address || null,
-    callback_number: collectedData.contactPhone || callData.fromNumber,
+    caller_name: extracted.caller_name,
+    caller_address: extracted.address,
+    callback_number: extracted.contact_phone || callData.fromNumber,
 
-    // Issue details
-    problem: collectedData.issue || null,
-    urgency: mapUrgencyLevel(collectedData.emergency),
+    // Issue details (from extraction)
+    problem: extracted.issue_description,
+    urgency: extracted.urgency_level || 'normal',
 
     // Call content
-    transcript: formatTranscript(callData.transcript),
+    transcript: transcriptText,
 
     // Business config (from dashboard API)
     business_name: userConfig?.business_name || null,
@@ -107,6 +136,10 @@ export async function sendToWebhook(userId, callData) {
 
     // Twilio call SID for recording lookup
     call_sid: callData.callSid,
+
+    // Additional notes from extraction
+    notes: extracted.additional_notes,
+    callback_time: extracted.callback_time,
   };
 
   webhookLogger.info('Sending call data to BuddyHelps Dashboard', {

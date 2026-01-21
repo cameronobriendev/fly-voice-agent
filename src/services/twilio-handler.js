@@ -71,6 +71,9 @@ export async function handleTwilioStream(ws) {
   // Half-duplex state: block user audio while AI is speaking
   let isSpeaking = false;
 
+  // Prevent double-finalize if both 'stop' and 'close' fire
+  let finalized = false;
+
   const collectedData = {
     // Data collected during call
     serviceType: null,
@@ -84,6 +87,22 @@ export async function handleTwilioStream(ws) {
     callerName: null,
     callerEmail: null,
   };
+
+  /**
+   * Check if AI response contains a goodbye phrase
+   */
+  function isGoodbyePhrase(text) {
+    const lowerText = text.toLowerCase();
+    const goodbyePhrases = [
+      'have a great day',
+      'have a good day',
+      'have a nice day',
+      'goodbye',
+      'bye bye',
+      'take care',
+    ];
+    return goodbyePhrases.some(phrase => lowerText.includes(phrase));
+  }
 
   // Services
   let deepgram = null;
@@ -370,15 +389,7 @@ export async function handleTwilioStream(ws) {
         content: greeting,
       });
 
-      // Add to transcript
-      transcript.push({
-        turn: 1,
-        speaker: 'ai',
-        text: greeting,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Send to TTS
+      // Send to TTS (sendAIResponse adds to transcript)
       await sendAIResponse(greeting);
 
       twilioLogger.info('✅ Call initialization complete', {
@@ -657,6 +668,14 @@ export async function handleTwilioStream(ws) {
             ttsStreamingMs: ttsResult?.streamingMs || null,
             pipelineLatency: (llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime) + (ttsResult?.ttfb || 0),
           });
+
+          // Auto-end call if AI said goodbye
+          if (isGoodbyePhrase(cleanContent)) {
+            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent });
+            setTimeout(() => {
+              ws.close();
+            }, 2000); // Give time for audio to finish
+          }
         }
       } else if (response.content) {
         // No tool calls - just a regular text response
@@ -710,6 +729,14 @@ export async function handleTwilioStream(ws) {
             ttsStreamingMs: ttsResult?.streamingMs || null,
             pipelineLatency: (llmEndTime - llmStartTime) + (ttsResult?.ttfb || 0),
           });
+
+          // Auto-end call if AI said goodbye
+          if (isGoodbyePhrase(cleanContent)) {
+            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent });
+            setTimeout(() => {
+              ws.close();
+            }, 2000); // Give time for audio to finish
+          }
         }
       }
     } catch (error) {
@@ -879,6 +906,13 @@ export async function handleTwilioStream(ws) {
    * Send call data to webhook
    */
   async function finalize() {
+    // Prevent double-finalize
+    if (finalized) {
+      twilioLogger.info('Call already finalized, skipping', { callSid });
+      return;
+    }
+    finalized = true;
+
     try {
       endTime = new Date().toISOString();
       const duration = Math.floor(
@@ -1023,7 +1057,7 @@ export async function handleTwilioStream(ws) {
     twilioLogger.error('WebSocket error', error);
   });
 
-  ws.on('close', () => {
+  ws.on('close', async () => {
     twilioLogger.info('WebSocket closed', { callSid });
 
     // Clean up
@@ -1034,6 +1068,9 @@ export async function handleTwilioStream(ws) {
     if (cartesia) {
       cartesia.disconnect();
     }
+
+    // Finalize call (fallback if 'stop' event wasn't received)
+    await finalize();
   });
 }
 

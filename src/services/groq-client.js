@@ -30,10 +30,12 @@ export class GroqClient {
   async chat(messages, tools = null) {
     try {
       const params = {
-        model: 'llama-3.3-70b-versatile',
+        model: 'qwen/qwen3-32b',
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 150,
+        temperature: 0.6,
+        top_p: 0.95,
+        max_tokens: 100,
+        reasoning_effort: 'none',  // Disable thinking mode for faster, shorter responses
       };
 
       if (tools) {
@@ -87,10 +89,11 @@ export class GroqClient {
       });
 
       const response = await this.client.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: 'qwen/qwen3-32b',
         messages: messages,
-        temperature: 0.7,
-        max_tokens: 150,
+        temperature: 0.6,
+        top_p: 0.95,
+        max_tokens: 100,
         // No tools - just get natural response
       });
 
