@@ -11,6 +11,7 @@
 
 import Groq from 'groq-sdk';
 import { logger } from '../utils/logger.js';
+import { formatAddress } from './address-formatter.js';
 
 const extractorLogger = logger.child('EXTRACTOR');
 
@@ -132,6 +133,14 @@ export async function extractFromTranscript(transcript) {
       tokensUsed: response.usage?.total_tokens
     });
 
+    // Second pass: format address with dedicated model
+    if (extracted.address) {
+      const formattedAddress = await formatAddress(extracted.address);
+      if (formattedAddress) {
+        extracted.address = formattedAddress;
+      }
+    }
+
     return extracted;
 
   } catch (error) {
@@ -171,6 +180,15 @@ export async function extractFromTranscript(transcript) {
                 hasIssue: !!recovered.issue_description,
                 urgency: recovered.urgency_level
               });
+
+              // Format address on recovered data too
+              if (recovered.address) {
+                const formattedAddress = await formatAddress(recovered.address);
+                if (formattedAddress) {
+                  recovered.address = formattedAddress;
+                }
+              }
+
               return recovered;
             }
           }
