@@ -26,6 +26,7 @@ import {
   finishAndGetEvents,
   sendEventsToDashboard,
 } from './call-events.js';
+import { createCallRecorder, uploadRecording } from './call-recorder.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -73,6 +74,9 @@ export async function handleTwilioStream(ws) {
 
   // Prevent double-finalize if both 'stop' and 'close' fire
   let finalized = false;
+
+  // Call recorder for backup audio storage
+  let callRecorder = null;
 
   const collectedData = {
     // Data collected during call
@@ -872,6 +876,11 @@ export async function handleTwilioStream(ws) {
             },
           })
         );
+
+        // Record outgoing audio (AI) for backup
+        if (callRecorder) {
+          callRecorder.addAiAudio(audioChunk);
+        }
       });
 
       // HALF-DUPLEX: Wait for audio to actually play on caller's phone
@@ -996,6 +1005,41 @@ export async function handleTwilioStream(ws) {
         });
       }
 
+      // Finalize and upload recording (non-blocking)
+      if (callRecorder && webhookResult?.callId) {
+        const recordingStats = callRecorder.getStats();
+        twilioLogger.info('Finalizing recording', {
+          callSid,
+          callId: webhookResult.callId,
+          ...recordingStats,
+        });
+
+        // Upload in background to not delay call completion
+        (async () => {
+          try {
+            const wavBuffer = callRecorder.finalize();
+            if (wavBuffer) {
+              const recordingUrl = await uploadRecording(
+                webhookResult.callId,
+                wavBuffer,
+                'https://info.buddyhelps.ca'
+              );
+              if (recordingUrl) {
+                twilioLogger.info('Recording uploaded successfully', {
+                  callSid,
+                  callId: webhookResult.callId,
+                  recordingUrl,
+                });
+              }
+            }
+          } catch (err) {
+            twilioLogger.error('Recording upload failed', err, { callSid });
+          } finally {
+            callRecorder.clear();
+          }
+        })();
+      }
+
       // Track call end
       onCallEnd();
 
@@ -1038,6 +1082,10 @@ export async function handleTwilioStream(ws) {
         // Initialize event tracking for this call
         initCallEvents(callSid);
 
+        // Initialize call recorder for backup audio
+        callRecorder = createCallRecorder(callSid);
+        twilioLogger.info('Call recorder initialized', { callSid });
+
         await initialize(toNumber, fromNumber);
       } else if (msg.event === 'media') {
         // ALWAYS forward audio to Deepgram to keep connection alive
@@ -1046,6 +1094,11 @@ export async function handleTwilioStream(ws) {
         if (deepgramConnection && msg.media?.payload) {
           const audioBuffer = Buffer.from(msg.media.payload, 'base64');
           deepgram.sendAudio(deepgramConnection, audioBuffer);
+
+          // Record incoming audio (caller) for backup
+          if (callRecorder) {
+            callRecorder.addCallerAudio(audioBuffer);
+          }
         }
       } else if (msg.event === 'stop') {
         twilioLogger.info('Call stopped', { callSid });
