@@ -404,12 +404,27 @@ export async function handleTwilioStream(ws) {
   }
 
   /**
-   * Strip function call syntax from LLM response
-   * Removes <function=...>...</function> tags that should not be spoken
+   * Strip internal LLM syntax from response before TTS
+   * Removes:
+   * - <function=...>...</function> tags (tool calls)
+   * - <think>...</think> tags (Qwen reasoning mode that can leak through)
+   * - Any partial <think> tags that got cut off
    */
   function stripFunctionCalls(text) {
+    if (!text) return '';
+
+    let cleaned = text;
+
     // Remove function call syntax: <function=name>{...}</function>
-    return text.replace(/<function=[^>]+>.*?<\/function>/g, '').trim();
+    cleaned = cleaned.replace(/<function=[^>]+>.*?<\/function>/gs, '');
+
+    // Remove Qwen <think>...</think> reasoning blocks (can leak despite reasoning_effort: 'none')
+    cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+    // Remove partial/unclosed <think> tags (if response got cut off mid-thinking)
+    cleaned = cleaned.replace(/<think>[\s\S]*/gi, '');
+
+    return cleaned.trim();
   }
 
   /**

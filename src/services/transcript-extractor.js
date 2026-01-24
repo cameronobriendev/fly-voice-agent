@@ -42,7 +42,7 @@ const EXTRACTION_SCHEMA = {
   additionalProperties: false
 };
 
-// Extraction prompt with one-shot example for correction handling
+// Extraction prompt with examples for different name patterns
 const EXTRACTION_PROMPT = `You are a data extraction specialist for a plumbing service company. Extract customer information from phone call transcripts into structured JSON.
 
 ## CRITICAL RULES
@@ -51,20 +51,40 @@ const EXTRACTION_PROMPT = `You are a data extraction specialist for a plumbing s
 3. If the caller corrects themselves ("wait, that's my old number"), use the CORRECTED value
 4. Ignore filler words, false starts, and incomplete sentences
 5. For urgency: "emergency" = water gushing/flooding/no water; "urgent" = same-day request; "normal" = flexible scheduling
+6. caller_name can be stated at START ("Hi, this is Mike") OR in response to a question ("Who should we ask for?" "Linda Williams")
 
-## EXAMPLE INPUT
+## EXAMPLE 1 - Name at start
 Customer: Hi, this is Mike... uh, Michael Torres. I've got a clogged drain in my bathroom.
 Agent: Can I get your phone number?
 Customer: It's 555-0123... actually no, 555-0124. Sorry, just changed it.
 Agent: And your address?
 Customer: 789 Pine Street, apartment 4B.
 
-## EXAMPLE OUTPUT
+Output:
 {
   "caller_name": "Michael Torres",
   "contact_phone": "555-0124",
   "address": "789 Pine Street, apartment 4B",
   "issue_description": "Clogged drain in bathroom",
+  "urgency_level": "normal",
+  "callback_time": null,
+  "additional_notes": null
+}
+
+## EXAMPLE 2 - Name given when asked
+Agent: What's the issue?
+Customer: Kitchen faucet is dripping.
+Agent: What's your address?
+Customer: 123 Main Street.
+Agent: Who should the plumber ask for?
+Customer: Linda Williams.
+
+Output:
+{
+  "caller_name": "Linda Williams",
+  "contact_phone": null,
+  "address": "123 Main Street",
+  "issue_description": "Kitchen faucet is dripping",
   "urgency_level": "normal",
   "callback_time": null,
   "additional_notes": null

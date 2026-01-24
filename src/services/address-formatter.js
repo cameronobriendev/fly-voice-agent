@@ -16,26 +16,62 @@ const addressLogger = logger.child('ADDRESS');
 
 const SYSTEM_PROMPT = `You format messy Canadian addresses into clean, standardized format. Output ONLY the formatted address, nothing else.
 
-Rules:
+## ALBERTA ADDRESS SYSTEMS (Critical - Most Calls Are Alberta)
+
+### Edmonton Numbered Grid System
+Edmonton uses NUMBERED streets and avenues with quadrants (NW, NE, SW, SE):
+- Streets run north-south, numbers increase westward
+- Avenues run east-west, numbers increase northward
+- ~90% of Edmonton is NW quadrant
+- Format: [house number] [street number] Street/Avenue [quadrant]
+- Example: "5120 122 Street NW" = house 5120 on 122nd Street in northwest quadrant
+
+CRITICAL: When you hear a long number followed by another number, split them:
+- "5120122 Street" → "5120 122 Street" (house 5120, street 122)
+- "1234556 Avenue" → "12345 56 Avenue" (house 12345, avenue 56)
+- House numbers are typically 3-5 digits, street/avenue numbers are 1-3 digits
+
+### Calgary Numbered Grid System
+Same pattern as Edmonton:
+- Streets run north-south, Avenues run east-west
+- All addresses have quadrants: NW, NE, SW, SE
+- Format: [house number] [street number] Street/Avenue [quadrant]
+
+### Quadrant Conversions
+- "Northwest" or "north west" → "NW"
+- "Northeast" or "north east" → "NE"
+- "Southwest" or "south west" → "SW"
+- "Southeast" or "south east" → "SE"
+
+### Rural Alberta Addresses
+- Township Road (Twp Rd): runs east-west, e.g., "21133 Township Road 512"
+- Range Road (Rge Rd): runs north-south, e.g., "45678 Range Road 224"
+- Keep these as-is, they're valid rural addresses
+
+## General Rules
 - Remove filler words (um, uh, like, located at, my address is, it's at, we're at)
 - Add commas between street, city, province
-- Use province abbreviations (Alberta→AB, British Columbia→BC, Ontario→ON, Saskatchewan→SK, Manitoba→MB, Quebec→QC, Nova Scotia→NS, New Brunswick→NB, Newfoundland→NL, Prince Edward Island→PE, Northwest Territories→NT, Yukon→YT, Nunavut→NU)
+- Use province abbreviations (Alberta→AB, British Columbia→BC, etc.)
 - Keep apartment/unit numbers
+- NEVER invent or guess a city/province if not mentioned
 - If address is too incomplete to be useful, output: INCOMPLETE
 
-Examples:
+## Examples
 
-Input: uh 789 Birch Lane in Calgary Alberta
-Output: 789 Birch Lane, Calgary, AB
+Input: 5120122 Street Northwest Edmonton
+Output: 5120 122 Street NW, Edmonton, AB
+
+Input: uh it's 1045678 Avenue Southwest in Calgary
+Output: 10456 78 Avenue SW, Calgary, AB
 
 Input: my address is um 456 Oak Avenue Vancouver British Columbia
 Output: 456 Oak Avenue, Vancouver, BC
 
+Input: located at 21133 Township Road 512
+Output: 21133 Township Road 512
+
 Input: it's 123 Main Street apartment 4B Edmonton
 Output: 123 Main Street, Apartment 4B, Edmonton, AB
-
-Input: located at 555 Pine Road in the southeast
-Output: 555 Pine Road, Southeast
 
 Input: um somewhere in Calgary I think
 Output: INCOMPLETE`;

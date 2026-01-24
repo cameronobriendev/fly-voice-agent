@@ -94,7 +94,7 @@ export class GroqClient {
         temperature: 0.6,
         top_p: 0.95,
         max_tokens: 100,
-        // No tools - just get natural response
+        reasoning_effort: 'none',  // Disable thinking mode (matches main chat function)
       });
 
       const result = {
