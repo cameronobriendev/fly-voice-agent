@@ -194,11 +194,11 @@ const server = app.listen(PORT, async () => {
   }
 });
 
-// WebSocket server for Twilio streams
-const wss = new WebSocketServer({
-  server,
-  path: '/stream',
-});
+// WebSocket servers with noServer mode (manual upgrade handling)
+// This fixes the issue where multiple WebSocketServer instances on the same
+// HTTP server can conflict when using the 'path' option
+const wss = new WebSocketServer({ noServer: true });
+const wssTelnyx = new WebSocketServer({ noServer: true });
 
 wss.on('connection', async (ws, req) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
@@ -220,12 +220,6 @@ wss.on('error', (error) => {
   serverLogger.error('Twilio WebSocket server error', error);
 });
 
-// WebSocket server for Telnyx streams
-const wssTelnyx = new WebSocketServer({
-  server,
-  path: '/telnyx-stream',
-});
-
 wssTelnyx.on('connection', async (ws, req) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
@@ -244,6 +238,24 @@ wssTelnyx.on('connection', async (ws, req) => {
 
 wssTelnyx.on('error', (error) => {
   serverLogger.error('Telnyx WebSocket server error', error);
+});
+
+// Manual WebSocket upgrade handling - routes to correct WebSocketServer based on path
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, 'http://localhost').pathname;
+
+  if (pathname === '/stream') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/telnyx-stream') {
+    wssTelnyx.handleUpgrade(request, socket, head, (ws) => {
+      wssTelnyx.emit('connection', ws, request);
+    });
+  } else {
+    serverLogger.warn('WebSocket upgrade rejected - unknown path', { pathname });
+    socket.destroy();
+  }
 });
 
 // Graceful shutdown
