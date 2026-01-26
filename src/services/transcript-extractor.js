@@ -53,16 +53,26 @@ const EXTRACTION_PROMPT = `You are a data extraction specialist for a plumbing s
 5. For urgency: "emergency" = water gushing/flooding/no water; "urgent" = same-day request; "normal" = flexible scheduling
 6. caller_name can be stated at START ("Hi, this is Mike") OR in response to a question ("Who should we ask for?" "Linda Williams")
 
-## EXAMPLE 1 - Name at start
-Customer: Hi, this is Mike... uh, Michael Torres. I've got a clogged drain in my bathroom.
+## CRITICAL: issue_description MUST include ALL relevant details
+- Include the initial problem AND any diagnostic details learned during the call
+- Include what the customer already tried (e.g., "already turned off main shutoff")
+- Include any cause/source details (e.g., "water coming up through floor drain")
+- This is what gets sent to the plumber—be thorough so they arrive prepared
+
+## CRITICAL: additional_notes for location/arrival details
+- Include any details to help find or identify the property
+- Examples: "house with orange door", "side entrance", "white van in driveway"
+
+## EXAMPLE 1 - Simple issue
+Customer: Hi, this is Mike Torres. I've got a clogged drain in my bathroom.
 Agent: Can I get your phone number?
-Customer: It's 555-0123... actually no, 555-0124. Sorry, just changed it.
+Customer: It's 555-0124.
 Agent: And your address?
 Customer: 789 Pine Street, apartment 4B.
 
 Output:
 {
-  "caller_name": "Michael Torres",
+  "caller_name": "Mike Torres",
   "contact_phone": "555-0124",
   "address": "789 Pine Street, apartment 4B",
   "issue_description": "Clogged drain in bathroom",
@@ -71,23 +81,27 @@ Output:
   "additional_notes": null
 }
 
-## EXAMPLE 2 - Name given when asked
+## EXAMPLE 2 - Issue with details learned during call
 Agent: What's the issue?
-Customer: Kitchen faucet is dripping.
+Customer: My basement is flooding.
+Agent: Is water actively coming in right now?
+Customer: Yeah, it's like bubbling up from a drain.
+Agent: Do you know where your main shutoff is?
+Customer: I already turned it off but it's still coming up.
 Agent: What's your address?
-Customer: 123 Main Street.
+Customer: 5120 122nd Street NW.
 Agent: Who should the plumber ask for?
-Customer: Linda Williams.
+Customer: Cameron. Also, it's the house with the orange door.
 
 Output:
 {
-  "caller_name": "Linda Williams",
+  "caller_name": "Cameron",
   "contact_phone": null,
-  "address": "123 Main Street",
-  "issue_description": "Kitchen faucet is dripping",
-  "urgency_level": "normal",
+  "address": "5120 122nd Street NW",
+  "issue_description": "Basement flooding. Water bubbling up from floor drain. Main shutoff already turned off but water still coming up through drain.",
+  "urgency_level": "emergency",
   "callback_time": null,
-  "additional_notes": null
+  "additional_notes": "House with orange door"
 }`;
 
 /**
