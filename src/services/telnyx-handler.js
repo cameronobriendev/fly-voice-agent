@@ -6,7 +6,7 @@
  *
  * Key differences from Twilio:
  * - Event format: {event: 'media', media: {track: 'inbound', payload}} for incoming audio
- * - Outgoing format (RTP mode): {event: 'media', stream_id, payload}
+ * - Outgoing format (RTP mode): {event: 'media', media: {payload}}
  * - Call info passed via client_state (base64 JSON) instead of customParameters
  * - stream_id instead of streamSid
  * - call_control_id instead of callSid
@@ -183,12 +183,13 @@ export async function handleTelnyxStream(ws) {
         const chunk = mulawData.slice(offset, offset + CHUNK_SIZE);
         const base64Audio = chunk.toString('base64');
 
-        // Telnyx RTP mode format
+        // Telnyx bidirectional RTP format: media.payload (not top-level payload)
         ws.send(
           JSON.stringify({
             event: 'media',
-            stream_id: streamId,
-            payload: base64Audio,
+            media: {
+              payload: base64Audio,
+            },
           })
         );
 
@@ -263,10 +264,12 @@ export async function handleTelnyxStream(ws) {
 
         await cartesia.queueSpeakText(errorMessage, (audioChunk) => {
           if (ws && ws.readyState === 1) {
+            // Telnyx bidirectional RTP format: media.payload (not top-level payload)
             ws.send(JSON.stringify({
               event: 'media',
-              stream_id: streamId,
-              payload: audioChunk.toString('base64'),
+              media: {
+                payload: audioChunk.toString('base64'),
+              },
             }));
           }
         });
@@ -665,12 +668,13 @@ export async function handleTelnyxStream(ws) {
         // Convert Buffer to Base64 for Telnyx
         const base64Audio = audioChunk.toString('base64');
 
-        // Telnyx RTP mode format
+        // Telnyx bidirectional RTP format: media.payload (not top-level payload)
         ws.send(
           JSON.stringify({
             event: 'media',
-            stream_id: streamId,
-            payload: base64Audio,
+            media: {
+              payload: base64Audio,
+            },
           })
         );
 
