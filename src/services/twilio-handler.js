@@ -690,10 +690,11 @@ export async function handleTwilioStream(ws) {
 
           // Auto-end call if AI said goodbye
           if (isGoodbyePhrase(cleanContent)) {
-            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent });
+            const closeDelay = (ttsResult?.audioMs || 2000) + 1000; // Audio duration + 1s buffer
+            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent, closeDelayMs: closeDelay });
             setTimeout(() => {
               ws.close();
-            }, 2000); // Give time for audio to finish
+            }, closeDelay);
           }
         }
       } else if (response.content) {
@@ -751,10 +752,11 @@ export async function handleTwilioStream(ws) {
 
           // Auto-end call if AI said goodbye
           if (isGoodbyePhrase(cleanContent)) {
-            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent });
+            const closeDelay = (ttsResult?.audioMs || 2000) + 1000; // Audio duration + 1s buffer
+            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent, closeDelayMs: closeDelay });
             setTimeout(() => {
               ws.close();
-            }, 2000); // Give time for audio to finish
+            }, closeDelay);
           }
         }
       }

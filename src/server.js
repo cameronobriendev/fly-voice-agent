@@ -16,6 +16,8 @@ import { getMetrics } from './services/metrics.js';
 import { testConnection } from './db/neon.js';
 import { logger } from './utils/logger.js';
 import { handleTwilioRouter } from './api/twilio/router.js';
+import { handleTelnyxWebhook } from './api/telnyx/webhook.js';
+import { handleTelnyxStream } from './services/telnyx-handler.js';
 import { requireAdminApiKey } from './api/admin/middleware.js';
 import { getPrompts, updateDemoTemplate, updateClientTemplate, updateDemoFallbackTemplate } from './api/admin/prompts.js';
 import { getGreetings, updateGreetings } from './api/admin/greetings.js';
@@ -120,6 +122,13 @@ app.get('/metrics', requireAdminApiKey, (req, res) => {
 app.post('/api/twilio/router', handleTwilioRouter);
 
 /**
+ * Telnyx Call Control Webhook endpoint
+ * Receives Telnyx Call Control events (call.initiated, streaming.started, call.hangup)
+ * Responds with 200 OK, then sends API commands asynchronously
+ */
+app.post('/api/telnyx/webhook', handleTelnyxWebhook);
+
+/**
  * Admin API endpoints (protected with API key)
  */
 // Prompts management
@@ -155,14 +164,16 @@ app.get('/', (req, res) => {
 app.get('/api', (req, res) => {
   res.json({
     name: 'Voice Agent - Fly.io',
-    version: '1.0.0',
+    version: '1.1.0',
     status: 'running',
     endpoints: {
       health: '/health',
       health_detailed: '/health/detailed',
       metrics: '/metrics (requires API key)',
       twilio_router: '/api/twilio/router',
-      websocket: 'wss://[your-app].fly.dev/stream',
+      twilio_websocket: 'wss://[your-app].fly.dev/stream',
+      telnyx_webhook: '/api/telnyx/webhook',
+      telnyx_websocket: 'wss://[your-app].fly.dev/telnyx-stream',
       admin_prompts: '/api/admin/prompts (requires API key)',
       admin_users: '/api/admin/users (requires API key)',
     },
@@ -192,7 +203,7 @@ const wss = new WebSocketServer({
 wss.on('connection', async (ws, req) => {
   const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
 
-  serverLogger.info('New WebSocket connection', {
+  serverLogger.info('New Twilio WebSocket connection', {
     ip: clientIp,
     path: req.url,
   });
@@ -200,22 +211,52 @@ wss.on('connection', async (ws, req) => {
   try {
     await handleTwilioStream(ws);
   } catch (error) {
-    serverLogger.error('Error handling WebSocket connection', error);
+    serverLogger.error('Error handling Twilio WebSocket connection', error);
     ws.close();
   }
 });
 
 wss.on('error', (error) => {
-  serverLogger.error('WebSocket server error', error);
+  serverLogger.error('Twilio WebSocket server error', error);
+});
+
+// WebSocket server for Telnyx streams
+const wssTelnyx = new WebSocketServer({
+  server,
+  path: '/telnyx-stream',
+});
+
+wssTelnyx.on('connection', async (ws, req) => {
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
+  serverLogger.info('New Telnyx WebSocket connection', {
+    ip: clientIp,
+    path: req.url,
+  });
+
+  try {
+    await handleTelnyxStream(ws);
+  } catch (error) {
+    serverLogger.error('Error handling Telnyx WebSocket connection', error);
+    ws.close();
+  }
+});
+
+wssTelnyx.on('error', (error) => {
+  serverLogger.error('Telnyx WebSocket server error', error);
 });
 
 // Graceful shutdown
 const gracefulShutdown = async (signal) => {
   serverLogger.info(`${signal} received, starting graceful shutdown...`);
 
-  // Close WebSocket server (stops accepting new connections)
+  // Close WebSocket servers (stops accepting new connections)
   wss.close(() => {
-    serverLogger.info('WebSocket server closed');
+    serverLogger.info('Twilio WebSocket server closed');
+  });
+
+  wssTelnyx.close(() => {
+    serverLogger.info('Telnyx WebSocket server closed');
   });
 
   // Close HTTP server

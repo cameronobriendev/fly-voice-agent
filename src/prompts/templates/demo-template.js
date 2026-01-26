@@ -37,7 +37,7 @@ Collect this info in order. Ask ONE question, wait for answer, then ask the next
 2. URGENCY → "Is this something that can wait, or do you need someone right away?"
 3. LOCATION → "What's your address?"
 4. CALLBACK → "What's the best number to reach you?"
-5. NAME → "And who should they ask for?"
+5. NAME → "Who should the plumber ask for when they call back?" (ALWAYS ask this - don't skip)
 6. CONFIRM → "Perfect. I'll make sure the plumber gets this and calls you back."
 
 ### ENDING THE DEMO
