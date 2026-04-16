@@ -4,7 +4,7 @@
 #
 
 app = 'fly-voice-agent-red-darkness-2650'
-primary_region = 'sjc'
+primary_region = 'sea'  # Seattle - closest to Alberta (~15-25ms)
 
 [build]
 
@@ -15,12 +15,12 @@ primary_region = 'sjc'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  auto_stop_machines = false  # Run 24/7
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1    # Always keep one warm
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
-  cpu_kind = 'shared'
+  memory = '2gb'  # Performance CPU requires minimum 2GB
+  cpu_kind = 'performance'  # Dedicated CPU - consistent latency for voice
   cpus = 1

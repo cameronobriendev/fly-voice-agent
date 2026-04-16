@@ -93,19 +93,17 @@ export async function handleTwilioStream(ws) {
   };
 
   /**
-   * Check if AI response contains a goodbye phrase
+   * Detect and strip the end-call sentinel emitted by the LLM.
+   * The model appends [[END_CALL]] when the caller has explicitly wrapped up.
+   * The token is silent - stripped before TTS, hangup triggered after audio plays.
+   * Replaces the old natural-phrase matcher which fired on "take care" etc. regardless
+   * of whether the caller had actually signaled they were done.
    */
-  function isGoodbyePhrase(text) {
-    const lowerText = text.toLowerCase();
-    const goodbyePhrases = [
-      'have a great day',
-      'have a good day',
-      'have a nice day',
-      'goodbye',
-      'bye bye',
-      'take care',
-    ];
-    return goodbyePhrases.some(phrase => lowerText.includes(phrase));
+  function extractEndCallSignal(text) {
+    if (!text) return { shouldEnd: false, spoken: '' };
+    const shouldEnd = /\[\[END_CALL\]\]/i.test(text);
+    const spoken = text.replace(/\s*\[\[END_CALL\]\]\s*/gi, '').trim();
+    return { shouldEnd, spoken };
   }
 
   // Services
@@ -650,7 +648,10 @@ export async function handleTwilioStream(ws) {
         // Send the natural language response to TTS
         if (finalResponse.content) {
           // Safety sanitization - strip any leaked syntax
-          const cleanContent = stripFunctionCalls(finalResponse.content);
+          let cleanContent = stripFunctionCalls(finalResponse.content);
+          // Detect end-call sentinel and strip from spoken output (silent signal)
+          const { shouldEnd: shouldEndCall, spoken: afterStrip } = extractEndCallSignal(cleanContent);
+          cleanContent = afterStrip;
 
           messages.push({
             role: 'assistant',
@@ -701,10 +702,10 @@ export async function handleTwilioStream(ws) {
             pipelineLatency: (llmEndTime - llmStartTime) + (followUpEndTime - followUpStartTime) + (ttsResult?.ttfb || 0),
           });
 
-          // Auto-end call if AI said goodbye
-          if (isGoodbyePhrase(cleanContent)) {
+          // End call if model emitted the end-call sentinel
+          if (shouldEndCall) {
             const closeDelay = (ttsResult?.audioMs || 2000) + 1000; // Audio duration + 1s buffer
-            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent, closeDelayMs: closeDelay });
+            twilioLogger.info('End-call signal, hanging up', { callSid, response: cleanContent, closeDelayMs: closeDelay });
             setTimeout(() => {
               ws.close();
             }, closeDelay);
@@ -713,7 +714,10 @@ export async function handleTwilioStream(ws) {
       } else if (response.content) {
         // No tool calls - just a regular text response
         // Safety sanitization as fallback
-        const cleanContent = stripFunctionCalls(response.content);
+        let cleanContent = stripFunctionCalls(response.content);
+        // Detect end-call sentinel and strip from spoken output (silent signal)
+        const { shouldEnd: shouldEndCall, spoken: afterStrip } = extractEndCallSignal(cleanContent);
+        cleanContent = afterStrip;
 
         if (cleanContent.length > 0) {
           messages.push({
@@ -763,10 +767,10 @@ export async function handleTwilioStream(ws) {
             pipelineLatency: (llmEndTime - llmStartTime) + (ttsResult?.ttfb || 0),
           });
 
-          // Auto-end call if AI said goodbye
-          if (isGoodbyePhrase(cleanContent)) {
+          // End call if model emitted the end-call sentinel
+          if (shouldEndCall) {
             const closeDelay = (ttsResult?.audioMs || 2000) + 1000; // Audio duration + 1s buffer
-            twilioLogger.info('Goodbye detected, ending call', { callSid, response: cleanContent, closeDelayMs: closeDelay });
+            twilioLogger.info('End-call signal, hanging up', { callSid, response: cleanContent, closeDelayMs: closeDelay });
             setTimeout(() => {
               ws.close();
             }, closeDelay);

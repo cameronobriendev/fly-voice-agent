@@ -50,6 +50,9 @@ function generateHangupTwiML() {
  * Generate TwiML for connecting to voice agent stream
  */
 function generateStreamTwiML(to, from) {
+  // No <Pause> after <Connect><Stream>: when the handler closes the WebSocket
+  // (end-call signal from the agent, error, etc.) the TwiML ends and Twilio
+  // hangs up the PSTN leg instead of leaving the caller on a silent line.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
@@ -58,7 +61,6 @@ function generateStreamTwiML(to, from) {
       <Parameter name="From" value="${xmlEscape(from)}" />
     </Stream>
   </Connect>
-  <Pause length="60"/>
 </Response>`;
 }
 

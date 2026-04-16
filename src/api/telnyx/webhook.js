@@ -23,6 +23,9 @@ const TELNYX_CONNECTION_ID = process.env.TELNYX_CONNECTION_ID;
 // WebSocket stream URL for voice agent
 const STREAM_URL = process.env.FLY_TELNYX_STREAM_URL || process.env.FLY_STREAM_URL?.replace('/stream', '/telnyx-stream');
 
+// Dashboard API URL for caller check
+const DASHBOARD_API_URL = process.env.DASHBOARD_API_URL || 'https://voice-admin.buddyhelps.ca';
+
 // Blocked number (optional)
 const BLOCKED_NUMBER = process.env.BLOCKED_NUMBER || '';
 
@@ -98,7 +101,41 @@ async function sendCommand(callControlId, action, params = {}) {
 }
 
 /**
- * Handle call.initiated event - Answer and start streaming
+ * Check if caller has an open (unresolved) call within the past 7 days.
+ * If they do, they should be transferred to the plumber instead of going through Buddy.
+ *
+ * @param {string} callerPhone - The caller's phone number (from)
+ * @param {string} toNumber - The BuddyHelps number called (to)
+ * @returns {object|null} - { has_open_call, open_call, plumber_phone } or null on error
+ */
+async function checkReturningCaller(callerPhone, toNumber) {
+  try {
+    const url = `${DASHBOARD_API_URL}/api/caller/check?phone=${encodeURIComponent(callerPhone)}&to=${encodeURIComponent(toNumber)}`;
+
+    telnyxLogger.info('Checking for returning caller', { callerPhone, toNumber, url });
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+    });
+
+    if (!response.ok) {
+      telnyxLogger.warn('Caller check API error', { status: response.status });
+      return null; // On error, default to normal Buddy flow
+    }
+
+    const result = await response.json();
+    telnyxLogger.info('Caller check result', result);
+
+    return result;
+  } catch (error) {
+    telnyxLogger.error('Caller check failed', error);
+    return null; // On error, default to normal Buddy flow
+  }
+}
+
+/**
+ * Handle call.initiated event - Check for returning caller, then answer and route
  */
 async function handleCallInitiated(payload) {
   const { call_control_id, from, to, call_leg_id, connection_id } = payload;
@@ -124,6 +161,36 @@ async function handleCallInitiated(payload) {
     return;
   }
 
+  // Check if this is a returning caller with an open issue
+  const callerCheck = await checkReturningCaller(from, to);
+
+  if (callerCheck?.has_open_call && callerCheck?.plumber_phone) {
+    telnyxLogger.info('Returning caller with open issue - transferring to plumber', {
+      callControlId: call_control_id,
+      callerPhone: from,
+      openCallId: callerCheck.open_call?.id,
+      plumberPhone: callerCheck.plumber_phone,
+    });
+
+    // Answer the call first
+    await sendCommand(call_control_id, 'answer', {});
+
+    // Transfer to plumber's phone
+    // Using 'transfer' action to connect caller directly to plumber
+    await sendCommand(call_control_id, 'transfer', {
+      to: callerCheck.plumber_phone,
+      // Optional: Play a brief message before transferring
+      // audio_url: 'https://example.com/connecting-you.mp3',
+    });
+
+    telnyxLogger.info('Call transferred to plumber', {
+      callControlId: call_control_id,
+      plumberPhone: callerCheck.plumber_phone,
+    });
+    return;
+  }
+
+  // Normal flow: Answer and start Buddy AI
   // Step 1: Answer the call
   await sendCommand(call_control_id, 'answer', {});
 
