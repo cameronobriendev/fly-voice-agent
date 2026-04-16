@@ -86,6 +86,7 @@ export async function getConfigFromDashboard(twilioNumber) {
       plumber_phone: config.plumber_phone,
       plumber_email: config.plumber_email,
       system_prompt: config.system_prompt,
+      greeting_text: config.greeting_text || null,
       is_demo: config.is_demo,
       is_active: config.is_active,
 

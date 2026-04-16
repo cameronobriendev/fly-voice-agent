@@ -372,20 +372,33 @@ export async function handleTwilioStream(ws) {
         totalInitTime: `${cartesiaConnectedTime - initStartTime}ms`,
       });
 
-      // STEP 5: Generate greeting via LLM (so it has full context)
-      twilioLogger.info('Generating greeting via LLM', { callSid });
-
-      const greetingLlmStart = Date.now();
-      const greetingResponse = await llmRouter.chat(messages, callSid, null);
-      const greetingLlmEnd = Date.now();
-      const greeting = stripFunctionCalls(greetingResponse.content || '');
-
-      addEvent(callSid, 'greeting_generated', {
-        llm_latency_ms: greetingLlmEnd - greetingLlmStart,
-        llm_provider: greetingResponse.provider,
-        greeting_length: greeting.length,
-        greeting_preview: greeting.substring(0, 100),
-      });
+      // STEP 5: Produce greeting. If config provides a static greeting_text, use it
+      // directly (no LLM call) so the LLM never sees a "greet the caller" instruction
+      // and can't accidentally re-greet on later turns. Fall back to LLM-generated
+      // greeting for configs that don't supply one.
+      let greeting;
+      if (userConfig.greeting_text && userConfig.greeting_text.trim()) {
+        greeting = userConfig.greeting_text.trim();
+        twilioLogger.info('Using static greeting from config', { callSid, length: greeting.length });
+        addEvent(callSid, 'greeting_generated', {
+          source: 'static_config',
+          greeting_length: greeting.length,
+          greeting_preview: greeting.substring(0, 100),
+        });
+      } else {
+        twilioLogger.info('Generating greeting via LLM', { callSid });
+        const greetingLlmStart = Date.now();
+        const greetingResponse = await llmRouter.chat(messages, callSid, null);
+        const greetingLlmEnd = Date.now();
+        greeting = stripFunctionCalls(greetingResponse.content || '');
+        addEvent(callSid, 'greeting_generated', {
+          source: 'llm',
+          llm_latency_ms: greetingLlmEnd - greetingLlmStart,
+          llm_provider: greetingResponse.provider,
+          greeting_length: greeting.length,
+          greeting_preview: greeting.substring(0, 100),
+        });
+      }
 
       // Add greeting to conversation history so LLM has context
       messages.push({
