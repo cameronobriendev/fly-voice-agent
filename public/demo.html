@@ -176,6 +176,13 @@
           <div class="challenges">
             <div class="challenge">
               <div class="challenge-header">
+                <strong>End-Call Handling</strong>
+                <span class="challenge-status status-progress">In Progress</span>
+              </div>
+              <p>Two problems surfaced during live demo testing. First, after the agent closed the WebSocket the caller stayed on a silent line for nearly a minute because the TwiML had a <code>&lt;Pause&gt;</code> verb running after <code>&lt;Connect&gt;&lt;Stream&gt;</code> ended. Removed the Pause so Twilio ends the PSTN leg when the stream closes. Second, the original goodbye detector matched natural phrases like "take care" and "goodbye" anywhere in an AI response, which meant the system hung up on callers mid-question whenever the model happened to use one of those phrases. Replaced it with a silent sentinel token <code>[[END_CALL]]</code> that the model emits only after the caller has explicitly wrapped up. The handler strips the token before sending to TTS, then closes the connection once the spoken audio finishes. Still tuning the prompt's negative examples so the model does not emit the sentinel proactively.</p>
+            </div>
+            <div class="challenge">
+              <div class="challenge-header">
                 <strong>Context Window Growth</strong>
                 <span class="challenge-status status-progress">In Progress</span>
               </div>
