@@ -184,9 +184,9 @@
             <div class="challenge">
               <div class="challenge-header">
                 <strong>Context Window Growth</strong>
-                <span class="challenge-status status-progress">In Progress</span>
+                <span class="challenge-status status-resolved">Resolved</span>
               </div>
-              <p>Conversation history grows with each turn (user message + AI response + tool results), increasing token count from ~1,200 to ~2,500+ over 4-5 turns. This causes latency creep and will eventually hit context limits. Solution: implement sliding window or conversation summarization to maintain consistent performance over longer calls.</p>
+              <p>Conversation history grew with each turn (user message + AI response + tool results), increasing token count from ~1,200 to ~2,500+ over 4-5 turns. This caused latency creep and would have eventually hit context limits. Solution: added context window management to keep token usage stable across longer calls.</p>
             </div>
             <div class="challenge">
               <div class="challenge-header">
